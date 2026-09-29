@@ -15,3 +15,10 @@
 
 Принципы: простота, офлайн-работа, русский язык в приоритете. Сборка APK — здесь, в репозитории.
 Тема в группе: «Транскрибатор Android».
+
+## Состояние (29.09.2026)
+- v0.1.0 собрана: Kotlin + Compose, движок sherpa-onnx 1.13.8, только arm64-v8a. Модели скачиваются в приложении.
+- Модели: GigaAM v3 punct CTC (ru, по умолчанию), GigaAM Multilingual (uz/ru/kk), Whisper Small (en/прочие);
+  диаризация pyannote-seg-3.0 + TitaNet-small. Обоснование — docs/research-models.md.
+- Сборка и проверка ядра на сервере — docs/BUILD.md. APK отдаётся в тему маркером из dist/.
+- На телефоне не проверено вживую (эмулятора нет): декодирование MediaCodec, DownloadManager, UI, запись.

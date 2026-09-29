@@ -1,0 +1,30 @@
+# Сборка на сервере (Oracle ARM64, Ubuntu 24.04)
+
+Окружение (ставилось 29.09.2026):
+- `openjdk-17-jdk-headless` (apt), Android SDK в `~/android-sdk` (platform 35, build-tools 35).
+- aapt2 от Google есть только под x86_64, поэтому в `~/.gradle/gradle.properties`:
+  `android.aapt2FromMavenOverride=/home/ubuntu/android-sdk/arm64-tools/build-tools/aapt2`
+  (статическая aarch64-сборка из github.com/lzhiyong/android-sdk-tools 35.0.2).
+- Кэш: `~/dev/.cache/` — gradle, sherpa-onnx (jniLibs, kotlin-api, linux-aarch64 JNI, тестовые модели).
+
+Сборка:
+```bash
+export ANDROID_HOME=~/android-sdk
+./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk
+```
+Подпись: `keystore/release.jks` + `keystore/signing.properties` (вне git, 0600).
+**Ключ не терять** — без него обновление поверх установленной версии невозможно
+(придётся удалять приложение). APK ~17 МБ: `.so` сжаты (`useLegacyPackaging = true`),
+чтобы влезать в лимит Telegram 20 МБ.
+
+Проверка ядра без телефона (тот же Kotlin-код Pipeline/Configs/Formatter/Resampler на JVM):
+```bash
+export SHERPA_JNI=~/dev/.cache/sherpa/linuxjni/sherpa-onnx-v1.13.8-linux-aarch64-jni/lib
+./gradlew -p tools/jvm-check -q run --args="$HOME/dev/.cache/sherpa/m gigaam /path/audio.ogg diar"
+# модели: gigaam | gml | whisper:ru ; четвёртый аргумент diar[:N] — разделение говорящих
+```
+
+Грабли:
+- `-Xlambdas=class` обязателен: JNI sherpa-onnx ищет у колбэка прогресса диаризации
+  `invoke(IIJ)Ljava/lang/Integer;`, которого нет у invokedynamic-лямбд Kotlin 2 → NoSuchMethodError.
+- Без минификации: JNI читает поля Kotlin-классов конфигов по именам.
