@@ -18,8 +18,9 @@ class Settings(ctx: Context) {
         get() = p.getBoolean("timestamps", true)
         set(v) = p.edit().putBoolean("timestamps", v).apply()
 
+    /** Разделять говорящих (действует, если модель диаризации скачана). */
     var diarize: Boolean
-        get() = p.getBoolean("diarize", false)
+        get() = p.getBoolean("diarize", true)
         set(v) = p.edit().putBoolean("diarize", v).apply()
 
     /** Число говорящих: 0 — определить автоматически. */

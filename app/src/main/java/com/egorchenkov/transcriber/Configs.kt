@@ -23,7 +23,8 @@ fun vadConfig(model: String, maxSpeechSec: Float) = VadModelConfig(
     numThreads = 1,
 )
 
-fun diarizationConfig(segmentation: String, embedding: String, numSpeakers: Int, threads: Int) =
+// Число говорящих задаёт Pipeline (setConfig): при окнах оно известно только для файла целиком
+fun diarizationConfig(segmentation: String, embedding: String, threads: Int) =
     OfflineSpeakerDiarizationConfig(
         segmentation = OfflineSpeakerSegmentationModelConfig(
             pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(
@@ -35,7 +36,7 @@ fun diarizationConfig(segmentation: String, embedding: String, numSpeakers: Int,
         ),
         embedding = SpeakerEmbeddingExtractorConfig(model = embedding, numThreads = threads),
         clustering = FastClusteringConfig(
-            numClusters = if (numSpeakers > 0) numSpeakers else -1,
+            numClusters = -1,
             threshold = 0.75f,
         ),
         minDurationOn = 0.3f,

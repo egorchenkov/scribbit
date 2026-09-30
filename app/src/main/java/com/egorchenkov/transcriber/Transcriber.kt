@@ -5,6 +5,8 @@ import android.net.Uri
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 import com.k2fsa.sherpa.onnx.Vad
 import java.io.File
 
@@ -31,11 +33,17 @@ class Transcriber(
         diarizationConfig(
             mm.file(Models.diarization, "segmentation.int8.onnx").absolutePath,
             mm.file(Models.diarization, "embedding.onnx").absolutePath,
-            numSpeakers, threads,
+            threads,
         ),
     )
 
-    private val pipeline = Pipeline(recognizer, vad, diarizer, spec.maxChunkSec)
+    // Сшивка говорящих между окнами диаризации
+    private val embedder: SpeakerEmbeddingExtractor? = if (!diarize) null else SpeakerEmbeddingExtractor(
+        null,
+        SpeakerEmbeddingExtractorConfig(mm.file(Models.diarization, "embedding.onnx").absolutePath, threads),
+    )
+
+    private val pipeline = Pipeline(recognizer, vad, diarizer, embedder, spec.maxChunkSec, numSpeakers)
 
     fun transcribe(
         name: String,
@@ -53,5 +61,6 @@ class Transcriber(
         recognizer.release()
         vad.release()
         diarizer?.release()
+        embedder?.release()
     }
 }

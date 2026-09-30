@@ -21,7 +21,8 @@ export ANDROID_HOME=~/android-sdk
 ```bash
 export SHERPA_JNI=~/dev/.cache/sherpa/linuxjni/sherpa-onnx-v1.13.8-linux-aarch64-jni/lib
 ./gradlew -p tools/jvm-check -q run --args="$HOME/dev/.cache/sherpa/m gigaam /path/audio.ogg diar"
-# модели: gigaam | gml | whisper:ru ; четвёртый аргумент diar[:N] — разделение говорящих
+# модели: gigaam | gml | whisper:ru ; четвёртый аргумент diar[:N[:окно_с[:порог]]] — разделение говорящих
+# (окно — длина куска диаризации, по умолчанию 600 с; порог сшивки говорящих между окнами 0.5)
 ```
 
 Грабли:

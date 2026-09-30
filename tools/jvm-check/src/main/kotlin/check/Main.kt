@@ -12,13 +12,15 @@ import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization
 import com.k2fsa.sherpa.onnx.OfflineWhisperModelConfig
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 import com.k2fsa.sherpa.onnx.Vad
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Аргументы: <каталог моделей> <gigaam|gml|whisper[:lang]> <аудио> [diar[:N]]
+ * Аргументы: <каталог моделей> <gigaam|gml|whisper[:lang]> <аудио> [diar[:N[:окно_с[:порог]]]]
  * Звук декодируется ffmpeg в 44.1 кГц — чтобы заодно проверить ресэмплер приложения.
  */
 fun main(args: Array<String>) {
@@ -26,7 +28,10 @@ fun main(args: Array<String>) {
     val (kind, lang) = args[1].split(":").let { it[0] to it.getOrElse(1) { "ru" } }
     val audio = args[2]
     val diar = args.getOrNull(3)?.startsWith("diar") == true
-    val speakers = args.getOrNull(3)?.substringAfter(":", "0")?.toIntOrNull() ?: 0
+    val dargs = args.getOrNull(3)?.split(":").orEmpty()
+    val speakers = dargs.getOrNull(1)?.toIntOrNull() ?: 0
+    val window = dargs.getOrNull(2)?.toFloatOrNull() ?: 600f
+    val same = dargs.getOrNull(3)?.toFloatOrNull() ?: 0.5f
 
     val model = when (kind) {
         "gigaam" -> OfflineModelConfig(nemo = OfflineNemoEncDecCtcModelConfig("$m/gigaam/model.int8.onnx"), tokens = "$m/gigaam/tokens.txt", numThreads = 4)
@@ -42,9 +47,10 @@ fun main(args: Array<String>) {
     val vad = Vad(null, vadConfig("$m/silero_vad.onnx", maxChunk))
     val diarizer = if (diar) OfflineSpeakerDiarization(
         null,
-        diarizationConfig("$m/sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx", "$m/nemo_en_titanet_small.onnx", speakers, 4),
+        diarizationConfig("$m/sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx", "$m/nemo_en_titanet_small.onnx", 4),
     ) else null
-    val pipeline = Pipeline(recognizer, vad, diarizer, maxChunk)
+    val embedder = if (diar) SpeakerEmbeddingExtractor(null, SpeakerEmbeddingExtractorConfig("$m/nemo_en_titanet_small.onnx", 4)) else null
+    val pipeline = Pipeline(recognizer, vad, diarizer, embedder, maxChunk, speakers, window, same)
 
     val inRate = 44100
     val pcm = ProcessBuilder("ffmpeg", "-v", "quiet", "-i", audio, "-ac", "1", "-ar", "$inRate", "-f", "f32le", "-")
