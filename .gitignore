@@ -7,3 +7,19 @@ dist/
 *.iml
 keystore/
 .kotlin/
+# Приватность: записи и расшифровки встреч — никогда в репозиторий (см. CLAUDE.md)
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.opus
+*.flac
+*.aac
+*.amr
+*.mp4
+*.webm
+*.srt
+*.vtt
+*.rttm
+samples/
+private/

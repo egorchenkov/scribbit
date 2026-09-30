@@ -5,6 +5,12 @@ import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization
 import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationSegment
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
 import com.k2fsa.sherpa.onnx.Vad
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 // Ядро без зависимостей от Android: его же гоняет проверка на сервере (tools/jvm-check).
 
@@ -29,17 +35,39 @@ typealias AudioSource = ((FloatArray, Float) -> Boolean) -> Unit
 class Pipeline(
     private val recognizer: OfflineRecognizer,
     private val vad: Vad,
-    private val diarizer: OfflineSpeakerDiarization?,
+    /**
+     * Экземпляры диаризации (каждый однопоточный). Несколько окон обрабатываются параллельно:
+     * модели мелкие и плохо масштабируются по потокам внутри одного окна (замер: 1 поток ≈ 4 потока),
+     * зато хорошо — по окнам. Пусто — без разделения говорящих.
+     */
+    private val diarizers: List<OfflineSpeakerDiarization>,
     private val embedder: SpeakerEmbeddingExtractor?,
     private val maxChunkSec: Float,
     /** Число говорящих: 0 — определить автоматически. */
     private val numSpeakers: Int = 0,
-    /** Длина окна диаризации: в памяти держим только его, а не весь файл (4 ч = ~900 МБ). */
-    private val windowSec: Float = 600f,
-    /** Порог косинусной близости «тот же человек» при сшивке окон. */
-    private val sameSpeaker: Float = 0.5f,
+    /**
+     * Длина окна диаризации: в памяти держим окна, а не весь файл (4 ч = ~900 МБ).
+     * 300 с: на AMI DER 20.8 % против 20.0 % у 600 с, зато паузы прогресса вдвое короче (docs/benchmark.md).
+     */
+    private val windowSec: Float = 300f,
+    /** Порог косинусной близости «тот же человек» при сшивке окон: 0.4 уже сливает разных людей, 0.5–0.6 — ок. */
+    private val sameSpeaker: Float = 0.6f,
+    /** Говорящий, у которого в окне меньше этого (с), — осколок: присоединяется к ближайшему. */
+    private val minSpeakerSec: Double = 6.0,
 ) {
-    val diarized get() = diarizer != null
+    val diarized get() = diarizers.isNotEmpty()
+
+    /** Время по стадиям, мс (для замеров в tools/jvm-check); диаризация — сумма по потокам. */
+    val timings: MutableMap<String, Long> = java.util.Collections.synchronizedMap(LinkedHashMap())
+
+    private inline fun <T> timed(stage: String, block: () -> T): T {
+        val t = System.nanoTime()
+        try {
+            return block()
+        } finally {
+            timings.merge(stage, (System.nanoTime() - t) / 1_000_000) { a, b -> a + b }
+        }
+    }
 
     fun run(
         source: AudioSource,
@@ -47,7 +75,7 @@ class Pipeline(
         onProgress: (Float, String) -> Unit,
         cancelled: () -> Boolean,
     ): List<Piece> =
-        if (diarizer == null) plain(source, duration, onProgress, cancelled)
+        if (diarizers.isEmpty()) plain(source, duration, onProgress, cancelled)
         else withSpeakers(source, duration, onProgress, cancelled)
 
     private fun plain(
@@ -72,8 +100,9 @@ class Pipeline(
     }
 
     /**
-     * Звук идёт окнами по windowSec: в каждом окне диаризация → реплики → распознавание.
-     * Говорящих из разных окон сшиваем по голосовым эмбеддингам (SpeakerBook).
+     * Звук идёт окнами по windowSec: диаризация окон — параллельно в пуле (до diarizers.size окон вперёд),
+     * сшивка говорящих и распознавание — по порядку в вызывающем потоке, пока пул считает следующие окна.
+     * В памяти одновременно не больше diarizers.size + 1 окон, а не весь файл.
      */
     private fun withSpeakers(
         source: AudioSource,
@@ -85,32 +114,58 @@ class Pipeline(
         val book = SpeakerBook(sameSpeaker)
         val windowSamples = (windowSec * SAMPLE_RATE).toInt()
         val win = GrowableFloats(windowSamples + SAMPLE_RATE)
+        val free = LinkedBlockingQueue(diarizers)
+        val pool = Executors.newFixedThreadPool(diarizers.size)
+        val pending = ArrayDeque<Pair<Window, Future<Array<OfflineSpeakerDiarizationSegment>>>>()
+        val expected = if (duration > 0) Math.ceil(duration / windowSec.toDouble()).toInt() else 0
+        var submitted = 0
         var winStart = 0
-        var windows = 0
 
-        fun processWindow(last: Boolean) {
-            val samples = win.toArray()
+        fun submit() {
+            val w = Window(submitted++, winStart, win.toArray())
             win.clear()
-            val t0 = winStart / SAMPLE_RATE.toFloat()
-            val len = samples.size / SAMPLE_RATE.toFloat()
+            winStart += w.samples.size
+            pending += w to pool.submit(Callable {
+                val d = free.take()
+                try {
+                    timed("диаризация") {
+                        d.processWithCallback(w.samples, { done, total, _ ->
+                            if (total > 0) w.diarDone = done.toFloat() / total
+                            if (cancelled()) 1 else 0 // ненулевой ответ прерывает диаризацию окна
+                        })
+                    }
+                } finally {
+                    free.put(d)
+                }
+            })
+        }
+
+        fun finishOldest() {
+            val (w, future) = pending.removeFirst()
+            val t0 = w.start / SAMPLE_RATE.toFloat()
+            val len = w.samples.size / SAMPLE_RATE.toFloat()
+            // Длинный файл идёт частями: подпись «часть 3 из 24», чтобы было видно, что работа идёт
+            val parts = maxOf(expected, submitted)
+            val part = if (parts > 1) "часть ${w.index + 1} из $parts · " else ""
             // Доля файла, которую занимает окно: 0..0.5 — поиск говорящих, 0.5..1 — распознавание
             fun progress(f: Float, stage: String) {
-                if (duration > 0) onProgress(((t0 + len * f) / duration).coerceIn(0f, 1f), stage)
+                if (duration > 0) onProgress(((t0 + len * f) / duration).coerceIn(0f, 1f), part + stage)
             }
-            // Весь файл уместился в одно окно — можно задать точное число говорящих
-            val n = if (last && windows == 0) numSpeakers else 0
-            diarizer!!.setConfig(diarizer.config.copy(
-                clustering = diarizer.config.clustering.copy(numClusters = if (n > 0) n else -1),
-            ))
-            val segs = diarizer.processWithCallback(samples, { done, total, _ ->
-                if (total > 0) progress(0.5f * done / total, "поиск говорящих")
-                if (cancelled()) 1 else 0 // ненулевой ответ прерывает диаризацию окна
-            }).sortedBy { it.start }
+            var segs: Array<OfflineSpeakerDiarizationSegment>? = null
+            timed("ожидание диаризации") {
+                while (segs == null) {
+                    try {
+                        segs = future.get(500, TimeUnit.MILLISECONDS)
+                    } catch (_: TimeoutException) {
+                        if (cancelled()) throw Cancelled()
+                        progress(0.5f * w.diarDone, "поиск говорящих")
+                    }
+                }
+            }
             if (cancelled()) throw Cancelled()
 
-            val turns = toTurns(segs)
-            // Локальные номера говорящих окна → сквозные
-            val global = turns.groupBy { it.speaker }.mapValues { (_, ts) -> book.assign(embed(samples, ts)) }
+            val turns = toTurns(segs!!.sortedBy { it.start })
+            val global = timed("сшивка") { stitch(w.samples, turns, book) }
 
             val total = turns.sumOf { (it.end - it.start).toDouble() }.toFloat().coerceAtLeast(1f)
             var doneSec = 0f
@@ -118,8 +173,8 @@ class Pipeline(
             for (turn in turns) {
                 if (cancelled()) throw Cancelled()
                 // Запас по краям реплики: диаризация режет впритык и съедает края слов
-                val from = maxOf((turn.start * SAMPLE_RATE).toInt() - PAD, prevEnd).coerceIn(0, samples.size)
-                val to = ((turn.end * SAMPLE_RATE).toInt() + PAD).coerceIn(from, samples.size)
+                val from = maxOf((turn.start * SAMPLE_RATE).toInt() - PAD, prevEnd).coerceIn(0, w.samples.size)
+                val to = ((turn.end * SAMPLE_RATE).toInt() + PAD).coerceIn(from, w.samples.size)
                 prevEnd = to
                 val speaker = global.getValue(turn.speaker)
                 val batcher = Batcher(maxChunkSec) { start, chunk ->
@@ -128,30 +183,60 @@ class Pipeline(
                     }
                 }
                 val feeder = VadFeeder(vad, from, batcher)
-                feeder.feed(samples.copyOfRange(from, to))
+                feeder.feed(w.samples.copyOfRange(from, to))
                 feeder.finish()
                 doneSec += turn.end - turn.start
                 progress(0.5f + 0.5f * doneSec / total, "распознавание")
             }
-            winStart += samples.size
-            windows++
         }
 
-        source { chunk, _ ->
-            win.add(chunk)
-            if (win.size >= windowSamples) processWindow(false)
-            !cancelled()
+        try {
+            source { chunk, _ ->
+                win.add(chunk)
+                if (win.size >= windowSamples) {
+                    submit()
+                    // Пока пул считает следующие окна, распознаём самое старое
+                    while (pending.size > diarizers.size) finishOldest()
+                }
+                !cancelled()
+            }
+            if (cancelled()) throw Cancelled()
+            if (win.size > 0 || submitted == 0) submit()
+            while (pending.isNotEmpty()) finishOldest()
+        } finally {
+            pool.shutdown()
+            // Нативный вызов не прервать: ждём, пока окна увидят отмену в колбэке
+            pool.awaitTermination(5, TimeUnit.MINUTES)
         }
-        if (cancelled()) throw Cancelled()
-        if (win.size > 0 || windows == 0) processWindow(true)
 
         // Сквозная нумерация: при заданном числе говорящих сливаем лишних, затем — по порядку появления
-        val merged = book.mergeTo(if (windows > 1) numSpeakers else 0)
+        val merged = book.mergeTo(numSpeakers)
         val order = LinkedHashMap<Int, Int>()
         return out.sortedBy { it.start }.map {
             val id = merged[it.speaker]
             it.copy(speaker = order.getOrPut(id) { order.size })
         }
+    }
+
+    private class Window(val index: Int, val start: Int, val samples: FloatArray) {
+        @Volatile var diarDone = 0f
+    }
+
+    /**
+     * Локальные номера говорящих окна → сквозные. Кластеры на несколько секунд — почти всегда
+     * осколки настоящих участников (кашель, смех, перекрытие): их присоединяем к ближайшему
+     * крупному, а не заводим «Спикер 17».
+     */
+    private fun stitch(samples: FloatArray, turns: List<Turn>, book: SpeakerBook): Map<Int, Int> {
+        val bySpeaker = turns.groupBy { it.speaker }
+            .map { (id, ts) -> Triple(id, ts.sumOf { (it.end - it.start).toDouble() }, embed(samples, ts)) }
+            .sortedByDescending { it.second }
+        val result = HashMap<Int, Int>()
+        for ((id, dur, e) in bySpeaker) {
+            val small = dur < minSpeakerSec && result.isNotEmpty()
+            result[id] = if (small) book.nearest(e) ?: result.getValue(bySpeaker.first().first) else book.assign(e)
+        }
+        return result
     }
 
     /** Склеиваем соседние куски одного говорящего, убираем перекрытия. */
@@ -196,7 +281,9 @@ class Pipeline(
 
     private class Turn(val start: Float, var end: Float, val speaker: Int)
 
-    private fun recognize(samples: FloatArray): String? {
+    private fun recognize(samples: FloatArray): String? = timed("распознавание") { recognizeNow(samples) }
+
+    private fun recognizeNow(samples: FloatArray): String? {
         val stream = recognizer.createStream()
         try {
             stream.acceptWaveform(samples, SAMPLE_RATE)
@@ -243,6 +330,13 @@ private class SpeakerBook(private val threshold: Float) {
         for (k in v.indices) sums[best][k] += v[k]
         counts[best]++
         return best
+    }
+
+    /** Ближайший из уже известных (без порога и без обновления центроида). */
+    fun nearest(e: FloatArray?): Int? {
+        if (e == null) return null
+        val v = normalize(e)
+        return sums.indices.filter { counts[it] > 0 }.maxByOrNull { dot(v, normalize(sums[it])) }
     }
 
     /** Сливает ближайших, пока говорящих больше n (n = 0 — не трогать). Возвращает переназначение. */

@@ -1,24 +1,63 @@
-# Транскрибатор (Android)
+# Транскрибатор — офлайн-расшифровка аудио на Android
 
-Офлайн-транскрибация аудио на телефоне: запись с микрофона (в фоне, с выключенным экраном),
-выбор файлов, «Поделиться» из Telegram → текст для LLM/Telegram. Разделение говорящих.
+Бесплатное приложение с открытым кодом: превращает запись совещания, голосовое из Telegram
+или диктофонный файл в текст **прямо на телефоне**. Интернет нужен один раз — скачать модель;
+дальше звук никуда не уходит.
 
-## Как пользоваться
-1. Установить `Transcriber-X.Y.Z.apk` (разрешить установку из этого источника).
-2. Настройки (шестерёнка) → скачать модель (один раз, дальше всё офлайн):
-   - **Русский — GigaAM v3** (215 МБ) — по умолчанию, пунктуация;
-   - **Узбекский — GigaAM Multilingual** (215 МБ) — uz/ru/kk, без пунктуации;
-   - **Whisper Small** (360 МБ) — английский и прочие языки;
-   - **Разделение говорящих** (40 МБ) → включить переключатель, при желании указать число участников.
-3. «● Запись» / «Выбрать файлы» / «Поделиться» из Telegram → «Транскрибировать».
-4. «Отправить» (текстом в Telegram/LLM), «Файлом .txt», «Копировать», «Сохранить».
+*English summary below.*
 
-## Устройство
-- Движок: [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 1.13.8 (готовые `jniLibs/arm64-v8a` + Kotlin API в `com.k2fsa.sherpa.onnx`).
-- Конвейер (`Pipeline.kt`, без Android-зависимостей): декодирование → 16 кГц моно → Silero VAD →
-  склейка фраз в куски ≤20 с (Whisper ≤25 с) → распознавание; с диаризацией —
-  pyannote-segmentation 3.0 + TitaNet-small → реплики по говорящим → распознавание каждой.
-- GigaAM Multilingual берётся с HuggingFace (istupakov) в формате onnx-asr; после скачивания
-  приложение дописывает в конец файла ONNX-метаданные, нужные sherpa-onnx (`OnnxMeta`).
-- Выбор моделей и замеры — `docs/research-models.md`; конкуренты и «локально vs облако» —
-  `docs/competitors.md`; iPhone/Mac/Windows — `docs/crossplatform.md`. Сборка — `docs/BUILD.md`.
+## Возможности
+- Русский (GigaAM v3 — с пунктуацией), узбекский/казахский (GigaAM Multilingual),
+  английский и ~100 других языков (Whisper Small).
+- **Разделение говорящих** («Спикер 1: …») — для совещаний и созвонов; число участников
+  можно указать или оставить «авто». Длинные записи (часы) обрабатываются частями,
+  память телефона не растёт с длиной файла.
+- Запись с микрофона в фоне (экран можно выключить), выбор нескольких файлов,
+  «Поделиться» из Telegram, WhatsApp, диктофона и любых других приложений (аудио и видео).
+- Результат: скопировать, отправить текстом (в мессенджер или LLM), сохранить .txt;
+  таймкоды — по желанию.
+
+## Установка
+1. Скачайте `Transcriber-X.Y.Z.apk` со страницы [Releases](../../releases) и откройте на телефоне
+   (разрешите установку из этого источника). Нужен Android 8+ на 64-битном ARM (arm64-v8a) —
+   это практически все телефоны последних лет.
+2. Шестерёнка → скачайте модель распознавания и, для совещаний, «Разделение говорящих».
+3. «● Запись», «Выбрать файлы» или «Поделиться» → «Транскрибировать».
+
+Обновления удобно получать через [Obtainium](https://github.com/ImranR98/Obtainium):
+добавьте ссылку на этот репозиторий — он сам будет ставить новые версии из Releases.
+
+## Модели
+Скачиваются в приложении с HuggingFace; в APK не входят.
+
+- GigaAM v3 punct CTC — русский, Sber, MIT.
+- GigaAM Multilingual CTC — узбекский/русский/казахский, MIT.
+- Whisper Small (int8) — OpenAI, MIT.
+- Разделение говорящих: pyannote segmentation-3.0 (MIT) + NVIDIA TitaNet-small (CC BY 4.0).
+- Детектор речи Silero VAD (MIT) — встроен в APK.
+
+Почему именно эти — `docs/research-models.md`; сравнение с другими приложениями —
+`docs/competitors.md`; качество и скорость разделения говорящих — `docs/benchmark.md`.
+
+## Сборка
+`./gradlew assembleRelease` (JDK 17, Android SDK 35). Подробности, проверка ядра без
+телефона и стенд качества — `docs/BUILD.md`. Движок — [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+(Apache-2.0), готовые `jniLibs/arm64-v8a`.
+
+## Приватность
+Приложение не отправляет звук и текст в сеть и не содержит аналитики. Сеть используется только
+для скачивания моделей по нажатию кнопки.
+
+## Лицензия
+MIT — см. `LICENSE`. Модели распространяются под своими лицензиями (список выше).
+
+---
+
+## English summary
+**Transcriber** is a free, open-source Android app for fully offline speech-to-text:
+Russian (GigaAM v3 with punctuation), Uzbek/Kazakh (GigaAM Multilingual), English and other
+languages (Whisper Small), plus speaker diarization for meetings (pyannote-3.0 + TitaNet).
+Share audio/video from Telegram or any app, pick several files, or record in the background.
+Models are downloaded once inside the app; audio never leaves the phone.
+Install the APK from [Releases](../../releases) (arm64, Android 8+) or track it with Obtainium.
+Built on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). License: MIT.

@@ -29,3 +29,18 @@ export SHERPA_JNI=~/dev/.cache/sherpa/linuxjni/sherpa-onnx-v1.13.8-linux-aarch64
 - `-Xlambdas=class` обязателен: JNI sherpa-onnx ищет у колбэка прогресса диаризации
   `invoke(IIJ)Ljava/lang/Integer;`, которого нет у invokedynamic-лямбд Kotlin 2 → NoSuchMethodError.
 - Без минификации: JNI читает поля Kotlin-классов конфигов по именам.
+
+## Стенд качества разделения говорящих (AMI)
+Открытые записи совещаний AMI (CC BY 4.0, 4 участника, эталонная разметка) — **вне git**, в `~/dev/.cache/sherpa/ami/`:
+```bash
+cd ~/dev/.cache/sherpa/ami
+for m in ES2004a IS1009a; do
+  curl -fLo $m.wav https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/$m/audio/$m.Mix-Headset.wav
+  curl -fLo $m.rttm https://raw.githubusercontent.com/pyannote/AMI-diarization-setup/main/only_words/rttms/test/$m.rttm
+done
+# движок диаризации отдельно (тот же C++ sherpa-onnx): конфиг = модель,шаг,порог,потоки[,N]
+~/dev/.cache/sherpa/venv/bin/python tools/bench/diar_bench.py ~/dev/.cache/sherpa/m . titanet,0.25,0.9,1
+# весь конвейер приложения: RTTM_OUT — разметка для tools/bench/der.py; DIAR_PAR — окон параллельно; DIAR_THR — порог
+RTTM_OUT=/tmp/hyp.rttm ./gradlew -p tools/jvm-check -q run --args="$M gigaam ES2004a.wav diar:0:300:0.5"
+```
+Реальные записи пользователей для тестов **не используются и в репозиторий не попадают** (см. CLAUDE.md, «Приватность»).

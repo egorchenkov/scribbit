@@ -4,6 +4,7 @@ import com.egorchenkov.transcriber.Formatter
 import com.egorchenkov.transcriber.Pipeline
 import com.egorchenkov.transcriber.Resampler
 import com.egorchenkov.transcriber.Transcript
+import com.egorchenkov.transcriber.diarParallel
 import com.egorchenkov.transcriber.diarizationConfig
 import com.egorchenkov.transcriber.vadConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
@@ -30,8 +31,8 @@ fun main(args: Array<String>) {
     val diar = args.getOrNull(3)?.startsWith("diar") == true
     val dargs = args.getOrNull(3)?.split(":").orEmpty()
     val speakers = dargs.getOrNull(1)?.toIntOrNull() ?: 0
-    val window = dargs.getOrNull(2)?.toFloatOrNull() ?: 600f
-    val same = dargs.getOrNull(3)?.toFloatOrNull() ?: 0.5f
+    val window = dargs.getOrNull(2)?.toFloatOrNull() ?: 300f
+    val same = dargs.getOrNull(3)?.toFloatOrNull() ?: 0.6f
 
     val model = when (kind) {
         "gigaam" -> OfflineModelConfig(nemo = OfflineNemoEncDecCtcModelConfig("$m/gigaam/model.int8.onnx"), tokens = "$m/gigaam/tokens.txt", numThreads = 4)
@@ -45,12 +46,15 @@ fun main(args: Array<String>) {
     val t0 = System.currentTimeMillis()
     val recognizer = OfflineRecognizer(null, OfflineRecognizerConfig(modelConfig = model))
     val vad = Vad(null, vadConfig("$m/silero_vad.onnx", maxChunk))
-    val diarizer = if (diar) OfflineSpeakerDiarization(
-        null,
-        diarizationConfig("$m/sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx", "$m/nemo_en_titanet_small.onnx", 4),
-    ) else null
+    val par = System.getenv("DIAR_PAR")?.toIntOrNull() ?: diarParallel()
+    val diarizers = if (diar) List(par) {
+        OfflineSpeakerDiarization(
+            null,
+            diarizationConfig("$m/sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx", "$m/nemo_en_titanet_small.onnx", 1, System.getenv("DIAR_THR")?.toFloatOrNull() ?: 0.9f),
+        )
+    } else emptyList()
     val embedder = if (diar) SpeakerEmbeddingExtractor(null, SpeakerEmbeddingExtractorConfig("$m/nemo_en_titanet_small.onnx", 4)) else null
-    val pipeline = Pipeline(recognizer, vad, diarizer, embedder, maxChunk, speakers, window, same)
+    val pipeline = Pipeline(recognizer, vad, diarizers, embedder, maxChunk, speakers, window, same)
 
     val inRate = 44100
     val pcm = ProcessBuilder("ffmpeg", "-v", "quiet", "-i", audio, "-ac", "1", "-ar", "$inRate", "-f", "f32le", "-")
@@ -72,6 +76,11 @@ fun main(args: Array<String>) {
         if (pct != lastPct) { lastPct = pct; System.err.println("  $stage ${pct * 10}%") }
     }, { System.getenv("CANCEL_AFTER")?.toLongOrNull()?.let { System.currentTimeMillis() - t0 > it * 1000 } ?: false })
     val sec = (System.currentTimeMillis() - t0) / 1000.0
+    // Разметка говорящих для подсчёта DER (tools/bench/der.py)
+    System.getenv("RTTM_OUT")?.let { path ->
+        File(path).writeText(pieces.joinToString("") { "SPEAKER x 1 %.2f %.2f <NA> <NA> s%d <NA> <NA>\n".format(it.start, it.end - it.start, it.speaker) })
+    }
     println(Formatter.document(listOf(Transcript(File(audio).name, duration, kind, pieces, pipeline.diarized)), true))
-    System.err.println("время: %.1f с на %.0f с аудио".format(sec, duration))
+    System.err.println("время: %.1f с на %.0f с аудио; стадии: %s".format(sec, duration,
+        pipeline.timings.entries.joinToString { "${it.key} %.1f с".format(it.value / 1000.0) }))
 }

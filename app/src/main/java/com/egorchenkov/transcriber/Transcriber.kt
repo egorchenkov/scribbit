@@ -28,14 +28,17 @@ class Transcriber(
 
     private val vad = Vad(ctx.assets, vadConfig("silero_vad.onnx", spec.maxChunkSec))
 
-    private val diarizer: OfflineSpeakerDiarization? = if (!diarize) null else OfflineSpeakerDiarization(
-        null,
-        diarizationConfig(
-            mm.file(Models.diarization, "segmentation.int8.onnx").absolutePath,
-            mm.file(Models.diarization, "embedding.onnx").absolutePath,
-            threads,
-        ),
-    )
+    // Диаризация: несколько однопоточных экземпляров — окна считаются параллельно
+    private val diarizers: List<OfflineSpeakerDiarization> = if (!diarize) emptyList() else List(diarParallel()) {
+        OfflineSpeakerDiarization(
+            null,
+            diarizationConfig(
+                mm.file(Models.diarization, "segmentation.int8.onnx").absolutePath,
+                mm.file(Models.diarization, "embedding.onnx").absolutePath,
+                1,
+            ),
+        )
+    }
 
     // Сшивка говорящих между окнами диаризации
     private val embedder: SpeakerEmbeddingExtractor? = if (!diarize) null else SpeakerEmbeddingExtractor(
@@ -43,7 +46,7 @@ class Transcriber(
         SpeakerEmbeddingExtractorConfig(mm.file(Models.diarization, "embedding.onnx").absolutePath, threads),
     )
 
-    private val pipeline = Pipeline(recognizer, vad, diarizer, embedder, spec.maxChunkSec, numSpeakers)
+    private val pipeline = Pipeline(recognizer, vad, diarizers, embedder, spec.maxChunkSec, numSpeakers)
 
     fun transcribe(
         name: String,
@@ -60,7 +63,7 @@ class Transcriber(
     override fun close() {
         recognizer.release()
         vad.release()
-        diarizer?.release()
+        diarizers.forEach { it.release() }
         embedder?.release()
     }
 }

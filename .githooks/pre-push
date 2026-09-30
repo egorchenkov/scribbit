@@ -1,0 +1,16 @@
+#!/bin/sh
+# Проверяет все файлы в каждом отправляемом коммите, включая сообщения коммитов
+z=0000000000000000000000000000000000000000
+root="$(git rev-parse --show-toplevel)"
+deny="${TRANSCRIBER_DENYLIST:-$HOME/.config/android-transcriber/private-denylist.txt}"
+while read -r lref lsha rref rsha; do
+  [ "$lsha" = "$z" ] && continue
+  if [ "$rsha" = "$z" ]; then range="$lsha"; else range="$rsha..$lsha"; fi
+  for c in $(git rev-list "$range"); do
+    git diff-tree --no-commit-id --name-only -r --root --diff-filter=ACMR "$c" | sh "$root/.githooks/check-private.sh" "$c" || exit 1
+    if [ -f "$deny" ] && git log -1 --format=%B "$c" | grep -i -q -F -f "$deny"; then
+      echo "✖ сообщение коммита $c содержит слова из приватного стоп-списка"; exit 1
+    fi
+  done
+done
+exit 0

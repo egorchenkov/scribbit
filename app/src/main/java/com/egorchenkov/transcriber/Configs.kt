@@ -24,7 +24,7 @@ fun vadConfig(model: String, maxSpeechSec: Float) = VadModelConfig(
 )
 
 // Число говорящих задаёт Pipeline (setConfig): при окнах оно известно только для файла целиком
-fun diarizationConfig(segmentation: String, embedding: String, threads: Int) =
+fun diarizationConfig(segmentation: String, embedding: String, threads: Int, threshold: Float = 0.9f) =
     OfflineSpeakerDiarizationConfig(
         segmentation = OfflineSpeakerSegmentationModelConfig(
             pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(
@@ -37,8 +37,12 @@ fun diarizationConfig(segmentation: String, embedding: String, threads: Int) =
         embedding = SpeakerEmbeddingExtractorConfig(model = embedding, numThreads = threads),
         clustering = FastClusteringConfig(
             numClusters = -1,
-            threshold = 0.75f,
+            // 0.9 вместо 0.75: на совещаниях AMI DER 27→20 % и 24→21 %, лишних «говорящих» вдвое меньше (docs/benchmark.md)
+            threshold = threshold,
         ),
         minDurationOn = 0.3f,
         minDurationOff = 0.5f,
     )
+
+/** Сколько окон диаризации считать параллельно: ядра минус два под распознавание и декодер, 1..3. */
+fun diarParallel() = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(1, 3)
