@@ -70,7 +70,7 @@ fun main(args: Array<String>) {
     }, duration, { p, stage ->
         val pct = (p * 10).toInt()
         if (pct != lastPct) { lastPct = pct; System.err.println("  $stage ${pct * 10}%") }
-    }, { false })
+    }, { System.getenv("CANCEL_AFTER")?.toLongOrNull()?.let { System.currentTimeMillis() - t0 > it * 1000 } ?: false })
     val sec = (System.currentTimeMillis() - t0) / 1000.0
     println(Formatter.document(listOf(Transcript(File(audio).name, duration, kind, pieces, pipeline.diarized)), true))
     System.err.println("время: %.1f с на %.0f с аудио".format(sec, duration))

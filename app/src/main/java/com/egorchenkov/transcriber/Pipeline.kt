@@ -104,7 +104,7 @@ class Pipeline(
             ))
             val segs = diarizer.processWithCallback(samples, { done, total, _ ->
                 if (total > 0) progress(0.5f * done / total, "поиск говорящих")
-                0
+                if (cancelled()) 1 else 0 // ненулевой ответ прерывает диаризацию окна
             }).sortedBy { it.start }
             if (cancelled()) throw Cancelled()
 

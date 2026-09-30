@@ -264,7 +264,11 @@ class MainActivity : ComponentActivity() {
                         val failed = jobs.count { it.status == Status.ERROR }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (running) {
-                                OutlinedButton(onClick = { Jobs.cancelRequested = true }) { Text("Остановить") }
+                                var stopping by remember { mutableStateOf(false) }
+                                OutlinedButton(
+                                    onClick = { stopping = true; Jobs.cancelRequested = true },
+                                    enabled = !stopping,
+                                ) { Text(if (stopping) "Останавливаю…" else "Остановить") }
                             } else {
                                 Button(
                                     onClick = { TranscriptionService.start(this@MainActivity) },
