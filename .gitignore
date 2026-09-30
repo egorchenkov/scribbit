@@ -23,3 +23,5 @@ keystore/
 *.rttm
 samples/
 private/
+__pycache__/
+*.pyc
