@@ -20,7 +20,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -114,7 +117,8 @@ class MainActivity : ComponentActivity() {
                 when (screen) {
                     "settings" -> SettingsScreen(onBack = { screen = "main" })
                     "detail" -> DetailScreen(openId, onBack = { screen = "main" })
-                    else -> MainScreen(onSettings = { screen = "settings" }, onOpen = { openId = it; screen = "detail" })
+                    "dim" -> DimScreen(onExit = { screen = "main" })
+                    else -> MainScreen(onSettings = { screen = "settings" }, onOpen = { openId = it; screen = "detail" }, onDim = { screen = "dim" })
                 }
             }
         }
@@ -194,7 +198,7 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun MainScreen(onSettings: () -> Unit, onOpen: (Long) -> Unit) {
+    fun MainScreen(onSettings: () -> Unit, onOpen: (Long) -> Unit, onDim: () -> Unit) {
         val jobs by Jobs.items.collectAsStateWithLifecycle()
         val rec by RecorderService.state.collectAsStateWithLifecycle()
         val recError by RecorderService.error.collectAsStateWithLifecycle()
@@ -318,6 +322,7 @@ class MainActivity : ComponentActivity() {
                                     onClick = { stopping = true; Jobs.cancelRequested = true },
                                     enabled = !stopping,
                                 ) { Text(if (stopping) "Останавливаю…" else "Остановить") }
+                                OutlinedButton(onClick = onDim) { Text("Чёрный экран") }
                             } else {
                                 Button(
                                     onClick = { TranscriptionService.start(this@MainActivity) },
@@ -384,6 +389,7 @@ class MainActivity : ComponentActivity() {
         var ignoring by remember { mutableStateOf(Background.ignoringBatteryOptimizations(this)) }
         var confirmed by remember { mutableStateOf(settings.bgConfirmed) }
         var keepOn by remember { mutableStateOf(settings.keepScreenOn) }
+        var quiet by remember { mutableStateOf(settings.keepAliveAudio) }
         var stalls by remember { mutableIntStateOf(settings.stallCount) }
         LaunchedEffect(Unit) {
             while (true) { ignoring = Background.ignoringBatteryOptimizations(this@MainActivity); delay(1000) }
@@ -431,10 +437,58 @@ class MainActivity : ComponentActivity() {
                     }
                     Switch(checked = keepOn, onCheckedChange = { keepOn = it; settings.keepScreenOn = it; applyKeepScreenOn() })
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Тихий звук для удержания фона")
+                        Text(
+                            "Беззвучный поток на время распознавания: прошивки не замораживают приложение «со звуком».",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(checked = quiet, onCheckedChange = { quiet = it; settings.keepAliveAudio = it })
+                }
+                TextButton(onClick = { shareLog() }) { Text("Отправить журнал фоновой работы") }
                 if (stalls > 0) TextButton(onClick = { settings.stallCount = 0; settings.stallSec = 0; stalls = 0 }) {
                     Text("Сбросить счётчик")
                 }
             }
+        }
+    }
+
+    private fun shareLog() {
+        val head = "Transcriber ${packageManager.getPackageInfo(packageName, 0).versionName}; " +
+            "${Build.MANUFACTURER} ${Build.MODEL}; Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); " +
+            "игнор батареи=${Background.ignoringBatteryOptimizations(this)}; тихий звук=${settings.keepAliveAudio}; " +
+            "заморозок=${settings.stallCount}\n\n"
+        shareFile(head + BgLog.text(), "transcriber-bg-log")
+    }
+
+    /** Почти выключенный экран: чёрный фон и минимальная яркость; экран не гаснет, поэтому система не замораживает работу. */
+    @Composable
+    fun DimScreen(onExit: () -> Unit) {
+        val jobs by Jobs.items.collectAsStateWithLifecycle()
+        val running = jobs.firstOrNull { it.status == Status.RUNNING }
+        DisposableEffect(Unit) {
+            val lp = window.attributes
+            lp.screenBrightness = 0.01f
+            window.attributes = lp
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            onDispose {
+                val l = window.attributes
+                l.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                window.attributes = l
+                applyKeepScreenOn()
+            }
+        }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black).clickable(onClick = onExit),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (running != null) "${running.label}\n${running.stage} ${(running.progress * 100).toInt()}%\n\nнажмите, чтобы выйти"
+                else "Готово\n\nнажмите, чтобы выйти",
+                color = Color(0xFF444444), fontSize = 16.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
     }
 

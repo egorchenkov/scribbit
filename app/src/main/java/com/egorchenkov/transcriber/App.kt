@@ -11,6 +11,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         Jobs.init(this)
+        BgLog.init(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CH_WORK, "Транскрибация", NotificationManager.IMPORTANCE_LOW)

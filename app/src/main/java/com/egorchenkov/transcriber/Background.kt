@@ -76,3 +76,21 @@ object Background {
 
     private fun tryStart(a: Activity, i: Intent): Boolean = runCatching { a.startActivity(i); true }.getOrDefault(false)
 }
+
+/** Журнал фоновой работы (только время и состояние, без содержимого записей) — для диагностики заморозок. */
+object BgLog {
+    private var file: java.io.File? = null
+    private val fmt = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+
+    fun init(ctx: Context) {
+        val f = java.io.File(ctx.filesDir, "bg.log")
+        if (f.length() > 100_000) f.writeText("")
+        file = f
+    }
+
+    @Synchronized fun log(msg: String) {
+        runCatching { file?.appendText(fmt.format(java.util.Date()) + " " + msg + "\n") }
+    }
+
+    fun text(): String = runCatching { file?.readText() }.getOrNull().orEmpty()
+}

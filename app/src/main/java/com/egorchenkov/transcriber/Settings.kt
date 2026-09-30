@@ -46,4 +46,9 @@ class Settings(ctx: Context) {
     var stallSec: Long
         get() = p.getLong("stallSec", 0L)
         set(v) = p.edit().putLong("stallSec", v).apply()
+
+    /** Тихий аудиопоток на время распознавания: прошивки не замораживают приложение, которое «играет звук». */
+    var keepAliveAudio: Boolean
+        get() = p.getBoolean("keepAliveAudio", Background.hasOemManager)
+        set(v) = p.edit().putBoolean("keepAliveAudio", v).apply()
 }
