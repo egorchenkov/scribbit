@@ -19,7 +19,14 @@ data class Job(
     val stage: String = "",
     val result: Transcript? = null,
     val error: String? = null,
-)
+    val createdAt: Long = System.currentTimeMillis(),
+    /** Метка, заданная пользователем; в списке показывается вместо имени файла. */
+    val title: String? = null,
+    /** Откуда взят файл (content://…), для повторной транскрибации, пока он там доступен. */
+    val source: String? = null,
+) {
+    val label get() = title?.takeIf { it.isNotBlank() } ?: name
+}
 
 /** Очередь файлов текущей сессии (общая для экрана и сервиса). */
 object Jobs {
@@ -39,14 +46,14 @@ object Jobs {
         dir = d
         val loaded = d.listFiles { f -> f.extension == "json" }.orEmpty().mapNotNull { f ->
             runCatching { fromJson(JSONObject(f.readText())) }.getOrNull()
-                ?.takeIf { it.file.exists() || it.status == Status.DONE }
+                ?.takeIf { it.file.exists() || it.status == Status.DONE || it.source != null }
         }.sortedBy { it.id }
         loaded.maxOfOrNull { it.id }?.let { max -> if (max > seq.get()) seq.set(max) }
         _items.value = loaded
     }
 
-    fun add(name: String, file: File) {
-        val job = Job(seq.incrementAndGet(), name, file)
+    fun add(name: String, file: File, source: String? = null, title: String? = null) {
+        val job = Job(seq.incrementAndGet(), name, file, source = source, title = title)
         _items.update { it + job }
         save(job)
     }
@@ -60,8 +67,25 @@ object Jobs {
                 }
             }
         }
-        changed?.let { save(it) }
+        changed?.let {
+            // Аудио не храним: после готового текста рабочая копия не нужна
+            if (it.status == Status.DONE && keepsNoAudio(it)) it.file.delete()
+            save(it)
+        }
     }
+
+    fun rename(id: Long, title: String) {
+        val t = title.trim().ifEmpty { null }
+        _items.update { list -> list.map { if (it.id == id) it.copy(title = t) else it } }
+        _items.value.firstOrNull { it.id == id }?.let { save(it) }
+    }
+
+    fun removeAll(ids: Set<Long>) = ids.forEach { remove(it) }
+
+    /** Готовые тексты (история), новые сверху. */
+    fun clearDone() = removeAll(_items.value.filter { it.status == Status.DONE }.map { it.id }.toSet())
+
+    private fun keepsNoAudio(j: Job) = j.file.parentFile?.name == "inbox" || j.source != null
 
     fun remove(id: Long) {
         _items.value.firstOrNull { it.id == id }?.let { deleteIfTemp(it.file) }
@@ -70,8 +94,11 @@ object Jobs {
     }
 
     fun clear() {
-        _items.value.filter { it.status != Status.RUNNING }.forEach { deleteIfTemp(it.file); jsonFile(it.id)?.delete() }
-        _items.update { list -> list.filter { it.status == Status.RUNNING } }
+        // «Очистить» убирает только очередь и ошибки; история (DONE) остаётся
+        val gone = _items.value.filter { it.status == Status.QUEUED || it.status == Status.ERROR }
+        gone.forEach { deleteIfTemp(it.file); jsonFile(it.id)?.delete() }
+        val ids = gone.map { it.id }.toSet()
+        _items.update { list -> list.filterNot { it.id in ids } }
     }
 
     /** Вернуть ошибочные в очередь (повтор). */
@@ -93,6 +120,7 @@ object Jobs {
 
     private fun toJson(j: Job) = JSONObject().apply {
         put("id", j.id); put("name", j.name); put("file", j.file.path)
+        put("createdAt", j.createdAt); put("title", j.title); put("source", j.source)
         // RUNNING при перезапуске процесса значит «прервано» — вернём в очередь
         put("status", j.status.name); put("error", j.error)
         j.result?.let { t ->
@@ -127,6 +155,9 @@ object Jobs {
             progress = if (st == Status.DONE) 1f else 0f,
             result = result,
             error = if (o.isNull("error")) null else o.getString("error"),
+            createdAt = o.optLong("createdAt", o.getLong("id")),
+            title = if (o.isNull("title")) null else o.optString("title").ifEmpty { null },
+            source = if (o.isNull("source")) null else o.optString("source").ifEmpty { null },
         )
     }
 

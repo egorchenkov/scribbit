@@ -12,6 +12,12 @@ object Formatter {
         else "%02d:%02d".format(s / 60, s % 60)
     }
 
+    fun dateTime(ms: Long): String = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru")).format(Date(ms))
+
+    /** Начало текста для карточки истории. */
+    fun preview(t: Transcript): String =
+        t.pieces.joinToString(" ") { it.text }.take(200).ifEmpty { "(речь не обнаружена)" }
+
     fun document(list: List<Transcript>, timestamps: Boolean): String {
         if (list.size == 1) return one(list[0], timestamps)
         val date = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru")).format(Date())

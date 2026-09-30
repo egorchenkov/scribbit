@@ -88,8 +88,8 @@ class RecorderService : Service() {
             val ok = runCatching { r.stop() }.isSuccess
             r.release()
             if (ok && f.length() > 0) {
-                Jobs.add(f.name, f)
-                copyToMusic(f)
+                // Копия в Music/Transcriber — источник для повторной транскрибации
+                Jobs.add(f.name, f, source = copyToMusic(f)?.toString())
             } else {
                 f.delete()
             }
@@ -100,17 +100,18 @@ class RecorderService : Service() {
     }
 
     /** Копия в общую папку Music/Transcriber, чтобы запись была видна в файловом менеджере. */
-    private fun copyToMusic(f: File) {
-        if (Build.VERSION.SDK_INT < 29) return
-        runCatching {
+    private fun copyToMusic(f: File): android.net.Uri? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        return runCatching {
             val values = ContentValues().apply {
                 put(MediaStore.Audio.Media.DISPLAY_NAME, f.name)
                 put(MediaStore.Audio.Media.MIME_TYPE, "audio/mp4")
                 put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/Transcriber")
             }
-            val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: return
+            val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)!!
             contentResolver.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
-        }
+            uri
+        }.getOrNull()
     }
 
     override fun onDestroy() {

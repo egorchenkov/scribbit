@@ -16,6 +16,19 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -93,9 +106,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 var screen by remember { mutableStateOf("main") }
+                var openId by remember { mutableStateOf(0L) }
                 BackHandler(screen != "main") { screen = "main" }
-                if (screen == "main") MainScreen(onSettings = { screen = "settings" })
-                else SettingsScreen(onBack = { screen = "main" })
+                when (screen) {
+                    "settings" -> SettingsScreen(onBack = { screen = "main" })
+                    "detail" -> DetailScreen(openId, onBack = { screen = "main" })
+                    else -> MainScreen(onSettings = { screen = "settings" }, onOpen = { openId = it; screen = "detail" })
+                }
             }
         }
     }
@@ -128,7 +145,7 @@ class MainActivity : ComponentActivity() {
         else i.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
 
     /** Копируем файл к себе: разрешение на чужой content:// живёт недолго. */
-    fun addUris(uris: List<Uri>, autoStart: Boolean) {
+    fun addUris(uris: List<Uri>, autoStart: Boolean, title: String? = null, repeat: Boolean = false) {
         val app = applicationContext
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             val inbox = File(filesDir, "inbox").apply { mkdirs() }
@@ -138,11 +155,15 @@ class MainActivity : ComponentActivity() {
                     val name = displayName(uri) ?: "аудио-${System.currentTimeMillis()}"
                     val dst = File(inbox, "${System.nanoTime()}_${name.replace('/', '_')}")
                     contentResolver.openInputStream(uri)!!.use { input -> dst.outputStream().use { input.copyTo(it) } }
-                    Jobs.add(name, dst)
+                    // Для выбора через системный диалог доступ можно сохранить — пригодится для повтора
+                    runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    Jobs.add(name, dst, source = uri.toString(), title = title)
                     added++
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(app, "Не удалось открыть файл: ${e.message}", Toast.LENGTH_LONG).show()
+                        val msg = if (repeat) "Исходный файл больше недоступен — повторить нельзя"
+                        else "Не удалось открыть файл: ${e.message}"
+                        Toast.makeText(app, msg, Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -163,7 +184,7 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun MainScreen(onSettings: () -> Unit) {
+    fun MainScreen(onSettings: () -> Unit, onOpen: (Long) -> Unit) {
         val jobs by Jobs.items.collectAsStateWithLifecycle()
         val rec by RecorderService.state.collectAsStateWithLifecycle()
         val recError by RecorderService.error.collectAsStateWithLifecycle()
@@ -175,7 +196,6 @@ class MainActivity : ComponentActivity() {
                 delay(1500)
             }
         }
-        val timestamps = settings.timestamps
 
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) addUris(uris, autoStart = false)
@@ -185,28 +205,42 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(recError) { recError?.let { toast(it); RecorderService.error.value = null } }
 
-        val results = jobs.mapNotNull { it.result }
-        val document = remember(results, timestamps) {
-            if (results.isEmpty()) "" else Formatter.document(results, timestamps)
+        val active = jobs.filter { it.status != Status.DONE }
+        val history = jobs.filter { it.status == Status.DONE }.sortedByDescending { it.createdAt }
+        var selected by remember { mutableStateOf(emptySet<Long>()) }
+        val sel = selected.filter { id -> history.any { it.id == id } }.toSet()
+        var confirm by remember { mutableStateOf<String?>(null) } // "sel" | "all"
+        var renaming by remember { mutableStateOf<Job?>(null) }
+        BackHandler(sel.isNotEmpty()) { selected = emptySet() }
+
+        confirm?.let { kind ->
+            val n = if (kind == "sel") sel.size else history.size
+            ConfirmDelete(n, onOk = {
+                if (kind == "sel") Jobs.removeAll(sel) else Jobs.clearDone()
+                selected = emptySet(); confirm = null
+            }, onCancel = { confirm = null })
         }
-        val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-            if (uri != null) runCatching {
-                contentResolver.openOutputStream(uri)!!.use { it.write(document.toByteArray()) }
-                toast("Сохранено")
-            }.onFailure { toast("Ошибка сохранения: ${it.message}") }
-        }
+        renaming?.let { RenameDialog(it) { renaming = null } }
 
         Scaffold(topBar = {
-            TopAppBar(
-                title = { Text("Транскрибатор") },
+            if (sel.isNotEmpty()) TopAppBar(
+                title = { Text("Выбрано: ${sel.size}") },
+                navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, "Отмена") } },
                 actions = {
-                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Настройки") }
+                    IconButton(onClick = {
+                        val list = history.filter { it.id in sel }.sortedBy { it.createdAt }.mapNotNull { it.result }
+                        shareText(Formatter.document(list, settings.timestamps))
+                    }) { Icon(Icons.Default.Share, "Отправить") }
+                    IconButton(onClick = { confirm = "sel" }) { Icon(Icons.Default.Delete, "Удалить") }
                 },
+            ) else TopAppBar(
+                title = { Text("Транскрибатор") },
+                actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Настройки") } },
             )
         }) { pad ->
             LazyColumn(
                 Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
                     val diar = if (settings.diarize && models.isInstalled(Models.diarization)) {
@@ -256,12 +290,15 @@ class MainActivity : ComponentActivity() {
                         ) { Text("Выбрать файлы") }
                     }
                 }
-                if (jobs.isNotEmpty()) {
-                    items(jobs, key = { it.id }) { job -> JobRow(job) }
+
+                // Текущая очередь: ожидают, идут, ошибки
+                if (active.isNotEmpty()) {
+                    item { SectionTitle("Сейчас") }
+                    items(active, key = { it.id }) { job -> JobRow(job) }
                     item {
-                        val queued = jobs.count { it.status == Status.QUEUED }
-                        val running = jobs.any { it.status == Status.RUNNING }
-                        val failed = jobs.count { it.status == Status.ERROR }
+                        val queued = active.count { it.status == Status.QUEUED }
+                        val running = active.any { it.status == Status.RUNNING }
+                        val failed = active.count { it.status == Status.ERROR }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (running) {
                                 var stopping by remember { mutableStateOf(false) }
@@ -277,40 +314,52 @@ class MainActivity : ComponentActivity() {
                             }
                             if (failed > 0 && !running) TextButton(onClick = { Jobs.retryFailed() }) { Text("Повторить") }
                             Spacer(Modifier.weight(1f))
-                            TextButton(onClick = { Jobs.clear() }, enabled = !running) { Text("Очистить") }
+                            TextButton(onClick = { Jobs.clear() }, enabled = !running) { Text("Убрать из очереди") }
                         }
                     }
-                } else item {
+                }
+
+                // История: готовые транскрипции, новые сверху
+                if (history.isNotEmpty()) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SectionTitle("История · ${history.size}", Modifier.weight(1f))
+                            if (sel.isEmpty()) TextButton(onClick = { confirm = "all" }) { Text("Очистить") }
+                        }
+                    }
+                    items(history, key = { it.id }) { job ->
+                        HistoryCard(
+                            job, selecting = sel.isNotEmpty(), isSelected = job.id in sel,
+                            onClick = { if (sel.isNotEmpty()) selected = sel.toggle(job.id) else onOpen(job.id) },
+                            onLongClick = { selected = sel.toggle(job.id) },
+                            onRename = { renaming = job },
+                            onDelete = { selected = setOf(job.id); confirm = "sel" },
+                        )
+                    }
+                    item {
+                        Text(
+                            "Аудио не хранится. Долгое нажатие — выбрать несколько записей.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(24.dp))
+                    }
+                } else if (active.isEmpty()) item {
                     Text(
                         "Запишите разговор или выберите аудиофайлы. Можно также «Поделиться» голосовым " +
-                            "или файлом из Telegram → «Транскрибатор».",
+                            "или файлом из Telegram → «Транскрибатор». Готовые тексты будут храниться здесь.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (document.isNotEmpty()) {
-                    item {
-                        HorizontalDivider()
-                        Spacer(Modifier.height(4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { shareText(document) }) { Text("Отправить") }
-                            OutlinedButton(onClick = { copy(document) }) { Text("Копировать") }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { shareFile(document) }) { Text("Файлом .txt") }
-                            OutlinedButton(onClick = { saver.launch(fileName() + ".txt") }) { Text("Сохранить") }
-                        }
-                    }
-                    item {
-                        Card(Modifier.fillMaxWidth()) {
-                            SelectionContainer {
-                                Text(document, Modifier.padding(12.dp), fontSize = 15.sp)
-                            }
-                        }
-                        Spacer(Modifier.height(24.dp))
-                    }
-                }
             }
         }
+    }
+
+    private fun Set<Long>.toggle(id: Long) = if (id in this) this - id else this + id
+
+    @Composable
+    private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+        Text(text, modifier, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
     }
 
     @Composable
@@ -318,17 +367,14 @@ class MainActivity : ComponentActivity() {
         Card(Modifier.fillMaxWidth()) {
             Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(job.name, fontWeight = FontWeight.Medium, maxLines = 2)
+                    Text(job.label, fontWeight = FontWeight.Medium, maxLines = 2)
                     when (job.status) {
                         Status.QUEUED -> Text("ожидает", style = MaterialTheme.typography.bodySmall)
                         Status.RUNNING -> {
                             Text("${job.stage} ${(job.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                             LinearProgressIndicator(progress = { job.progress }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
                         }
-                        Status.DONE -> Text(
-                            "готово · " + Formatter.time(job.result?.durationSec ?: 0f),
-                            style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32),
-                        )
+                        Status.DONE -> {}
                         Status.ERROR -> Text("ошибка: ${job.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -337,6 +383,171 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    private fun HistoryCard(
+        job: Job,
+        selecting: Boolean,
+        isSelected: Boolean,
+        onClick: () -> Unit,
+        onLongClick: () -> Unit,
+        onRename: () -> Unit,
+        onDelete: () -> Unit,
+    ) {
+        val t = job.result
+        var menu by remember { mutableStateOf(false) }
+        Card(
+            Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            Row(Modifier.padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp), verticalAlignment = Alignment.Top) {
+                if (selecting) Checkbox(isSelected, onCheckedChange = null, modifier = Modifier.padding(end = 12.dp, top = 2.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(job.label, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (job.title != null) Text(
+                        job.name, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        Formatter.dateTime(job.createdAt) + " · " + Formatter.time(t?.durationSec ?: 0f) +
+                            (if (t?.diarized == true) " · говорящих: ${t.pieces.map { it.speaker }.distinct().size}" else ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (t != null) Text(
+                        Formatter.preview(t), Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (!selecting) Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Действия") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Переименовать") }, onClick = { menu = false; onRename() })
+                        if (t != null) {
+                            DropdownMenuItem(text = { Text("Отправить") }, onClick = {
+                                menu = false; shareText(Formatter.one(t, settings.timestamps))
+                            })
+                            DropdownMenuItem(text = { Text("Копировать") }, onClick = {
+                                menu = false; copy(Formatter.one(t, settings.timestamps))
+                            })
+                        }
+                        if (canRepeat(job)) DropdownMenuItem(text = { Text("Повторить") }, onClick = { menu = false; repeat(job) })
+                        DropdownMenuItem(text = { Text("Удалить") }, onClick = { menu = false; onDelete() })
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun ConfirmDelete(n: Int, onOk: () -> Unit, onCancel: () -> Unit) {
+        AlertDialog(
+            onDismissRequest = onCancel,
+            title = { Text(if (n == 1) "Удалить запись?" else "Удалить записи: $n?") },
+            text = { Text("Текст будет удалён без возможности восстановления. Аудио приложение не хранит.") },
+            confirmButton = { TextButton(onClick = onOk) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = onCancel) { Text("Отмена") } },
+        )
+    }
+
+    @Composable
+    private fun RenameDialog(job: Job, onClose: () -> Unit) {
+        var text by remember { mutableStateOf(job.title ?: "") }
+        AlertDialog(
+            onDismissRequest = onClose,
+            title = { Text("Название записи") },
+            text = {
+                OutlinedTextField(
+                    text, { text = it }, singleLine = true,
+                    placeholder = { Text(job.name) },
+                    supportingText = { Text("Пусто — показывать имя файла") },
+                )
+            },
+            confirmButton = { TextButton(onClick = { Jobs.rename(job.id, text); onClose() }) { Text("Сохранить") } },
+            dismissButton = { TextButton(onClick = onClose) { Text("Отмена") } },
+        )
+    }
+
+    // ---------------- Просмотр записи ----------------
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    fun DetailScreen(id: Long, onBack: () -> Unit) {
+        val jobs by Jobs.items.collectAsStateWithLifecycle()
+        val job = jobs.firstOrNull { it.id == id }
+        val t = job?.result
+        LaunchedEffect(job == null) { if (job == null) onBack() }
+        if (job == null || t == null) return
+
+        val text = remember(t, settings.timestamps) { Formatter.one(t, settings.timestamps) }
+        val paragraphs = remember(text) { text.split("\n\n") }
+        var renaming by remember { mutableStateOf(false) }
+        var confirmDelete by remember { mutableStateOf(false) }
+        val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+            if (uri != null) runCatching {
+                contentResolver.openOutputStream(uri)!!.use { it.write(text.toByteArray()) }
+                toast("Сохранено")
+            }.onFailure { toast("Ошибка сохранения: ${it.message}") }
+        }
+        if (renaming) RenameDialog(job) { renaming = false }
+        if (confirmDelete) ConfirmDelete(1, onOk = { Jobs.remove(job.id) }, onCancel = { confirmDelete = false })
+
+        Scaffold(topBar = {
+            TopAppBar(
+                title = { Text(job.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад") } },
+                actions = {
+                    IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "Переименовать") }
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, "Удалить") }
+                },
+            )
+        }) { pad ->
+            SelectionContainer {
+                LazyColumn(
+                    Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
+                        Text(
+                            Formatter.dateTime(job.createdAt) + " · " + Formatter.time(t.durationSec) + " · " + t.model +
+                                (if (job.title != null) "\nФайл: ${job.name}" else ""),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { shareText(text) }) { Text("Отправить") }
+                                OutlinedButton(onClick = { copy(text) }) { Text("Копировать") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { shareFile(text, job.label) }) { Text("Файлом .txt") }
+                                OutlinedButton(onClick = { saver.launch(safeName(job.label) + ".txt") }) { Text("Сохранить") }
+                                if (canRepeat(job)) OutlinedButton(onClick = { repeat(job); onBack() }) { Text("Повторить") }
+                            }
+                        }
+                        HorizontalDivider(Modifier.padding(top = 12.dp))
+                    }
+                    items(paragraphs.size) { i -> Text(paragraphs[i], fontSize = 15.sp) }
+                    item { Spacer(Modifier.height(24.dp)) }
+                }
+            }
+        }
+    }
+
+    /** Повторно берём файл из источника (если он там ещё есть) — как новую запись в истории. */
+    private fun canRepeat(job: Job) = job.file.exists() || job.source != null
+
+    private fun repeat(job: Job) {
+        if (job.file.exists()) {
+            Jobs.add(job.name, job.file, job.source, job.title)
+            TranscriptionService.start(this)
+        } else job.source?.let { addUris(listOf(Uri.parse(it)), autoStart = true, title = job.title, repeat = true) }
     }
 
     // ---------------- Настройки ----------------
@@ -509,8 +720,8 @@ class MainActivity : ComponentActivity() {
 
     // ---------------- Действия с результатом ----------------
 
-    private fun fileName() = "Транскрипция " +
-        java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US).format(java.util.Date())
+    private fun safeName(label: String) = label.substringBeforeLast('.', label)
+        .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(80).ifEmpty { "Транскрипция" }
 
     private fun copy(text: String) {
         getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Транскрипция", text))
@@ -522,9 +733,9 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(send, "Отправить транскрипцию"))
     }
 
-    private fun shareFile(text: String) {
+    private fun shareFile(text: String, label: String) {
         val dir = File(cacheDir, "share").apply { mkdirs() }
-        val f = File(dir, fileName() + ".txt").apply { writeText(text) }
+        val f = File(dir, safeName(label) + ".txt").apply { writeText(text) }
         val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
         val send = Intent(Intent.ACTION_SEND).setType("text/plain")
             .putExtra(Intent.EXTRA_STREAM, uri)
