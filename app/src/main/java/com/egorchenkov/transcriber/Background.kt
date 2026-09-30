@@ -116,6 +116,18 @@ object BgLog {
         file = f
     }
 
+    /** Причины последних завершений процесса (Android 11+): отличает убийство системой от нехватки памяти и падения. */
+    fun logExits(ctx: Context) {
+        if (android.os.Build.VERSION.SDK_INT < 30) return
+        runCatching {
+            val am = ctx.getSystemService(android.app.ActivityManager::class.java)
+            am.getHistoricalProcessExitReasons(ctx.packageName, 0, 3).forEach {
+                log("прошлый выход: причина=${it.reason} статус=${it.status} важность=${it.importance} " +
+                    "память=${it.pss / 1024}МБ время=${fmt.format(java.util.Date(it.timestamp))} ${it.description.orEmpty()}")
+            }
+        }
+    }
+
     @Synchronized fun log(msg: String) {
         runCatching { file?.appendText(fmt.format(java.util.Date()) + " " + msg + "\n") }
     }

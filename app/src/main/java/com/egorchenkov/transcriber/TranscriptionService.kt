@@ -59,6 +59,7 @@ class TranscriptionService : Service() {
                     ", экран включён=${getSystemService(PowerManager::class.java).isInteractive}; " +
                     Background.summary(this),
             )
+            BgLog.logExits(this)
             startHeartbeat()
             Settings(this).interrupted = true
             Jobs.cancelRequested = false
