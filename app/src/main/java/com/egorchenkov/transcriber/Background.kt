@@ -23,6 +23,33 @@ object Background {
     fun ignoringBatteryOptimizations(ctx: Context): Boolean =
         ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
 
+    fun powerSave(ctx: Context): Boolean = ctx.getSystemService(PowerManager::class.java).isPowerSaveMode
+
+    /** «Ограничить работу в фоне» в сведениях о приложении (Android 9+). */
+    fun backgroundRestricted(ctx: Context): Boolean =
+        Build.VERSION.SDK_INT >= 28 && ctx.getSystemService(android.app.ActivityManager::class.java).isBackgroundRestricted
+
+    fun notificationsOn(ctx: Context): Boolean =
+        androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+
+    /** Группа ожидания Android (10 — активное … 45 — ограниченное). */
+    fun standbyBucket(ctx: Context): Int =
+        if (Build.VERSION.SDK_INT >= 28) ctx.getSystemService(android.app.usage.UsageStatsManager::class.java).appStandbyBucket else 0
+
+    /** Строка состояния для журнала. */
+    fun summary(ctx: Context): String =
+        "игнор батареи=${ignoringBatteryOptimizations(ctx)}; энергосбережение=${powerSave(ctx)}; " +
+            "фон ограничен=${backgroundRestricted(ctx)}; уведомления=${notificationsOn(ctx)}; группа=${standbyBucket(ctx)}"
+
+    fun openPowerSaver(a: Activity) {
+        tryStart(a, Intent(AndroidSettings.ACTION_BATTERY_SAVER_SETTINGS)) || openAppInfo(a)
+    }
+
+    fun openNotifications(a: Activity) {
+        tryStart(a, Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(AndroidSettings.EXTRA_APP_PACKAGE, a.packageName)) ||
+            openAppInfo(a)
+    }
+
     /** Системный диалог «Не ограничивать»; если недоступен — общий список исключений. */
     fun requestIgnore(a: Activity) {
         val direct = Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${a.packageName}"))
@@ -65,9 +92,10 @@ object Background {
 
     /** Что включить в настройках производителя. */
     fun instruction(): String = when {
-        isHuawei -> "Батарея → Запуск приложений → Транскрибатор: выключите «Автоматическое управление» " +
-            "и включите три переключателя (автозапуск, косвенный запуск, работа в фоне). " +
-            "Ещё: закрепите приложение замком в списке недавних."
+        isHuawei -> "Батарея → Запуск приложений → Транскрибатор: выключите «Управлять автоматически» " +
+            "и в появившемся окне включите все три переключателя, особенно «Работа в фоне». " +
+            "Без этого EMUI замораживает приложение через несколько секунд после выключения экрана, " +
+            "даже при снятом ограничении батареи."
         isOem("xiaomi", "redmi", "poco") -> "Включите «Автозапуск» и в «Экономия заряда» выберите «Нет ограничений»."
         isOem("samsung") -> "Батарея → Ограничения в фоне: уберите приложение из «Спящих» и «Глубоко спящих»."
         isOem("oppo", "realme", "vivo", "oneplus") -> "Разрешите автозапуск и работу в фоне; экономию батареи для приложения выключите."

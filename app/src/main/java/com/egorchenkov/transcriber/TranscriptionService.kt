@@ -15,9 +15,6 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -31,7 +28,6 @@ class TranscriptionService : Service() {
     private var lastNotify = 0L
     private var lastProgressAt = 0L
     private var lastInteractive = true
-    private var silent: AudioTrack? = null
     private var heartbeat: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -40,28 +36,41 @@ class TranscriptionService : Service() {
         super.onCreate()
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "transcriber:work")
+            .apply { setReferenceCounted(false) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val keepAlive = Settings(this).keepAliveAudio
-        ServiceCompat.startForeground(
-            this, NOTIF_ID, progressNotification("Подготовка…", 0f),
-            if (Build.VERSION.SDK_INT >= 29) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
-                    (if (keepAlive) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0)
-            } else 0,
-        )
+        try {
+            ServiceCompat.startForeground(
+                this, NOTIF_ID, progressNotification("Подготовка…", 0f),
+                if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
+            )
+        } catch (e: Exception) {
+            // Android 12+: из фона без исключения из экономии батареи запуск запрещён — продолжим при открытии приложения
+            BgLog.log("запуск в фоне запрещён системой: ${e.javaClass.simpleName}")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!working) {
             working = true
-            BgLog.log("старт: тихое аудио=$keepAlive, экран включён=${getSystemService(PowerManager::class.java).isInteractive}")
-            if (keepAlive) startSilentAudio()
+            // intent == null — система сама перезапустила сервис после убийства процесса
+            BgLog.log(
+                (if (intent == null) "перезапуск системой" else "старт") +
+                    ", экран включён=${getSystemService(PowerManager::class.java).isInteractive}; " +
+                    Background.summary(this),
+            )
             startHeartbeat()
+            Settings(this).interrupted = true
             Jobs.cancelRequested = false
-            wakeLock.acquire(6 * 60 * 60 * 1000L)
+            holdWakeLock()
             scope.launch { runQueue() }
         }
-        return START_NOT_STICKY
+        // Если систему убьёт процесс, она перезапустит сервис, и очередь продолжится с точки продолжения
+        return START_STICKY
     }
+
+    /** Wake lock с таймаутом, продлеваемый прогрессом: зависшая работа не держит процессор часами. */
+    private fun holdWakeLock() = wakeLock.acquire(WAKE_MS)
 
     private fun runQueue() {
         val settings = Settings(this)
@@ -79,11 +88,17 @@ class TranscriptionService : Service() {
                     val t = transcriber ?: Transcriber(this, spec, settings.language, diarize, settings.speakers)
                         .also { transcriber = it }
                     lastProgressAt = 0L
+                    val key = "${spec.id}|${settings.language}|$diarize|${settings.speakers}"
+                    val resume = Jobs.loadCheckpoint(job.id, key)
+                    if (resume != null) {
+                        BgLog.log("продолжение с части ${resume.windows + 1}")
+                        Jobs.update(job.id) { it.copy(stage = "продолжение с части ${resume.windows + 1}") }
+                    }
                     val result = t.transcribe(job.name, job.file, { p, stage ->
                         noteProgress(settings)
                         Jobs.update(job.id) { it.copy(progress = p, stage = stage) }
                         notifyProgress(job.name, p, stage)
-                    }, { Jobs.cancelRequested })
+                    }, { Jobs.cancelRequested }, resume, { Jobs.saveCheckpoint(job.id, key, it) })
                     Jobs.update(job.id) { it.copy(status = Status.DONE, progress = 1f, result = result) }
                     done++
                 } catch (e: Cancelled) {
@@ -94,8 +109,8 @@ class TranscriptionService : Service() {
             }
         } finally {
             BgLog.log("конец: готово файлов $done")
+            settings.interrupted = false
             heartbeat?.cancel()
-            stopSilentAudio()
             transcriber?.close()
             working = false
             if (wakeLock.isHeld) wakeLock.release()
@@ -118,6 +133,7 @@ class TranscriptionService : Service() {
         }
         lastProgressAt = now
         lastInteractive = getSystemService(PowerManager::class.java).isInteractive
+        holdWakeLock()
     }
 
     /** Раз в 15 с пишет в журнал состояние; разрыв между записями показывает, когда процесс стоял. */
@@ -137,38 +153,6 @@ class TranscriptionService : Service() {
                 )
             }
         }
-    }
-
-    /** Беззвучный поток (±1 единица, неслышно): процесс со звуком система не замораживает при выключенном экране. */
-    private fun startSilentAudio() {
-        runCatching {
-            val rate = 8000
-            val min = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            val track = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(),
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder().setSampleRate(rate).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build(),
-                )
-                .setBufferSizeInBytes(maxOf(min, rate))
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-            track.play()
-            silent = track
-            Thread({
-                val buf = ShortArray(rate / 2) { if (it % 2 == 0) 1 else -1 }
-                while (silent === track) if (track.write(buf, 0, buf.size) < 0) break
-            }, "keepalive").apply { isDaemon = true }.start()
-        }.onFailure { BgLog.log("тихое аудио не запустилось: ${it.message}") }
-    }
-
-    private fun stopSilentAudio() {
-        val t = silent
-        silent = null
-        runCatching { t?.stop(); t?.release() }
     }
 
     private fun progressNotification(text: String, p: Float): Notification =
@@ -214,6 +198,7 @@ class TranscriptionService : Service() {
         private const val NOTIF_ID = 1
         private const val DONE_ID = 3
         private const val STALL_MS = 90_000L
+        private const val WAKE_MS = 15 * 60 * 1000L
 
         fun start(ctx: Context) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, TranscriptionService::class.java))

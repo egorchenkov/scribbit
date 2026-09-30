@@ -1,5 +1,6 @@
 package check
 
+import com.egorchenkov.transcriber.Checkpoint
 import com.egorchenkov.transcriber.Formatter
 import com.egorchenkov.transcriber.Pipeline
 import com.egorchenkov.transcriber.Resampler
@@ -63,18 +64,19 @@ fun main(args: Array<String>) {
     val all = FloatArray(fb.remaining()).also { fb.get(it) }
     val duration = all.size / inRate.toFloat()
     var lastPct = -1
-    val pieces = pipeline.run({ cb ->
-        val rs = Resampler(inRate, 16000)
-        var i = 0
-        while (i < all.size) {
-            val n = minOf(4096, all.size - i)
-            if (!cb(rs.process(all.copyOfRange(i, i + n)), (i + n) / inRate.toFloat())) break
-            i += n
+    // KILL_AFTER=k: «убить» после k готовых окон и продолжить с точки продолжения (проверка возобновления)
+    val killAfter = System.getenv("KILL_AFTER")?.toIntOrNull()
+    var ckpt: Checkpoint? = null
+    if (killAfter != null) {
+        runCatching {
+            pipeline.run({ cb -> feed(all, inRate, cb) }, duration, { _, _ -> }, { (ckpt?.windows ?: 0) >= killAfter }, null, { ckpt = it })
         }
-    }, duration, { p, stage ->
+        System.err.println("  прервано: окон ${ckpt?.windows}, до ${"%.0f".format((ckpt?.nextSample ?: 0) / 16000f)} с, кусков ${ckpt?.pieces?.size}")
+    }
+    val pieces = pipeline.run({ cb -> feed(all, inRate, cb) }, duration, { p, stage ->
         val pct = (p * 10).toInt()
         if (pct != lastPct) { lastPct = pct; System.err.println("  $stage ${pct * 10}%") }
-    }, { System.getenv("CANCEL_AFTER")?.toLongOrNull()?.let { System.currentTimeMillis() - t0 > it * 1000 } ?: false })
+    }, { System.getenv("CANCEL_AFTER")?.toLongOrNull()?.let { System.currentTimeMillis() - t0 > it * 1000 } ?: false }, ckpt)
     val sec = (System.currentTimeMillis() - t0) / 1000.0
     // Разметка говорящих для подсчёта DER (tools/bench/der.py)
     System.getenv("RTTM_OUT")?.let { path ->
@@ -83,4 +85,14 @@ fun main(args: Array<String>) {
     println(Formatter.document(listOf(Transcript(File(audio).name, duration, kind, pieces, pipeline.diarized)), true))
     System.err.println("время: %.1f с на %.0f с аудио; стадии: %s".format(sec, duration,
         pipeline.timings.entries.joinToString { "${it.key} %.1f с".format(it.value / 1000.0) }))
+}
+
+private fun feed(all: FloatArray, inRate: Int, cb: (FloatArray, Float) -> Boolean) {
+    val rs = Resampler(inRate, 16000)
+    var i = 0
+    while (i < all.size) {
+        val n = minOf(4096, all.size - i)
+        if (!cb(rs.process(all.copyOfRange(i, i + n)), (i + n) / inRate.toFloat())) break
+        i += n
+    }
 }

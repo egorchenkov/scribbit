@@ -10,7 +10,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
-import android.view.WindowManager
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.activity.ComponentActivity
@@ -108,7 +107,11 @@ class MainActivity : ComponentActivity() {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         if (savedInstanceState == null) handleIntent(intent)
-        lifecycleScope.launch { Jobs.items.collect { applyKeepScreenOn() } }
+        // Процесс убили посреди очереди, а система не перезапустила сервис — продолжаем с точки продолжения
+        if (settings.interrupted && !Jobs.isRunning && Jobs.nextQueued() != null) {
+            BgLog.log("продолжение после остановки процесса (открыто приложение)")
+            TranscriptionService.start(this)
+        }
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 var screen by remember { mutableStateOf("main") }
@@ -117,18 +120,10 @@ class MainActivity : ComponentActivity() {
                 when (screen) {
                     "settings" -> SettingsScreen(onBack = { screen = "main" })
                     "detail" -> DetailScreen(openId, onBack = { screen = "main" })
-                    "dim" -> DimScreen(onExit = { screen = "main" })
-                    else -> MainScreen(onSettings = { screen = "settings" }, onOpen = { openId = it; screen = "detail" }, onDim = { screen = "dim" })
+                    else -> MainScreen(onSettings = { screen = "settings" }, onOpen = { openId = it; screen = "detail" })
                 }
             }
         }
-    }
-
-    /** Экран не гаснет, пока идёт распознавание (если включено в настройках): иначе некоторые прошивки замораживают процесс. */
-    fun applyKeepScreenOn() {
-        val on = settings.keepScreenOn && Jobs.isRunning
-        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -198,7 +193,7 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun MainScreen(onSettings: () -> Unit, onOpen: (Long) -> Unit, onDim: () -> Unit) {
+    fun MainScreen(onSettings: () -> Unit, onOpen: (Long) -> Unit) {
         val jobs by Jobs.items.collectAsStateWithLifecycle()
         val rec by RecorderService.state.collectAsStateWithLifecycle()
         val recError by RecorderService.error.collectAsStateWithLifecycle()
@@ -322,7 +317,6 @@ class MainActivity : ComponentActivity() {
                                     onClick = { stopping = true; Jobs.cancelRequested = true },
                                     enabled = !stopping,
                                 ) { Text(if (stopping) "Останавливаю…" else "Остановить") }
-                                OutlinedButton(onClick = onDim) { Text("Чёрный экран") }
                             } else {
                                 Button(
                                     onClick = { TranscriptionService.start(this@MainActivity) },
@@ -372,8 +366,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Фон настроен, если снято ограничение батареи и (для прошивок со своим менеджером) пользователь подтвердил шаги. */
-    private fun bgOk() = Background.ignoringBatteryOptimizations(this) &&
+    /** Фон настроен: всё, что можно проверить, в порядке, и (для прошивок со своим менеджером) пользователь подтвердил шаги. */
+    private fun bgOk() = Background.ignoringBatteryOptimizations(this) && !Background.powerSave(this) &&
+        !Background.backgroundRestricted(this) && Background.notificationsOn(this) &&
         (!Background.hasOemManager || settings.bgConfirmed)
 
     @Composable
@@ -383,18 +378,22 @@ class MainActivity : ComponentActivity() {
         return need
     }
 
-    /** Настройка работы при выключенном экране: статус, кнопки, инструкция под производителя. */
+    /**
+     * Настройка работы при выключенном экране — только системные разрешения, без обходов:
+     * что можно проверить, проверяется само; шаги производителя пользователь подтверждает.
+     */
     @Composable
     private fun BackgroundCard() {
-        var ignoring by remember { mutableStateOf(Background.ignoringBatteryOptimizations(this)) }
+        val ctx = this@MainActivity
+        var tick by remember { mutableIntStateOf(0) }
         var confirmed by remember { mutableStateOf(settings.bgConfirmed) }
-        var keepOn by remember { mutableStateOf(settings.keepScreenOn) }
-        var quiet by remember { mutableStateOf(settings.keepAliveAudio) }
         var stalls by remember { mutableIntStateOf(settings.stallCount) }
-        LaunchedEffect(Unit) {
-            while (true) { ignoring = Background.ignoringBatteryOptimizations(this@MainActivity); delay(1000) }
-        }
-        val ok = ignoring && (!Background.hasOemManager || confirmed)
+        LaunchedEffect(Unit) { while (true) { delay(1000); tick++ } }
+        val ignoring = remember(tick) { Background.ignoringBatteryOptimizations(ctx) }
+        val saver = remember(tick) { Background.powerSave(ctx) }
+        val restricted = remember(tick) { Background.backgroundRestricted(ctx) }
+        val notif = remember(tick) { Background.notificationsOn(ctx) }
+        val ok = ignoring && !saver && !restricted && notif && (!Background.hasOemManager || confirmed)
         Card(
             Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -408,44 +407,35 @@ class MainActivity : ComponentActivity() {
                     fontWeight = FontWeight.Bold,
                 )
                 if (stalls > 0) Text(
-                    "Система замораживала распознавание при выключенном экране: $stalls раз, " +
-                        "всего ${settings.stallSec / 60} мин. Проверьте шаги ниже или включите «Не гасить экран».",
+                    "Система останавливала распознавание при выключенном экране: $stalls раз, " +
+                        "всего ${settings.stallSec / 60} мин. Проверьте шаги ниже. " +
+                        "Если процесс убит, работа продолжится с последней готовой части.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Text(
-                    (if (ignoring) "✓ Ограничение батареи снято" else "✗ Батарея ограничивает приложение"),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (!ignoring) Button(onClick = { Background.requestIgnore(this@MainActivity) }) { Text("Не ограничивать батарею") }
+                BgStep(ignoring, "Ограничение батареи снято", "Батарея ограничивает приложение", "Не ограничивать") {
+                    Background.requestIgnore(ctx)
+                }
+                BgStep(!saver, "Энергосбережение выключено", "Включено энергосбережение — фон останавливается", "Настройки") {
+                    Background.openPowerSaver(ctx)
+                }
+                BgStep(!restricted, "Работа в фоне не ограничена", "В сведениях о приложении ограничена работа в фоне", "Открыть") {
+                    Background.openAppInfo(ctx)
+                }
+                BgStep(notif, "Уведомления включены", "Уведомления выключены — система считает работу скрытой", "Включить") {
+                    Background.openNotifications(ctx)
+                }
                 if (Background.hasOemManager) {
-                    Text(Background.instruction(), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        (if (confirmed) "✓ " else "• ") + Background.instruction(),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(onClick = { Background.openOemManager(this@MainActivity) }) { Text("Открыть настройки") }
+                        OutlinedButton(onClick = { Background.openOemManager(ctx) }) { Text("Открыть настройки") }
                         if (!confirmed) TextButton(onClick = {
                             settings.bgConfirmed = true; settings.stallCount = 0; settings.stallSec = 0
                             confirmed = true; stalls = 0
                         }) { Text("Готово, настроил") }
                     }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Не гасить экран при распознавании")
-                        Text(
-                            "Надёжно на любом телефоне; работает, пока приложение открыто. Лучше на зарядке.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Switch(checked = keepOn, onCheckedChange = { keepOn = it; settings.keepScreenOn = it; applyKeepScreenOn() })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Тихий звук для удержания фона")
-                        Text(
-                            "Беззвучный поток на время распознавания: прошивки не замораживают приложение «со звуком».",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Switch(checked = quiet, onCheckedChange = { quiet = it; settings.keepAliveAudio = it })
                 }
                 TextButton(onClick = { shareLog() }) { Text("Отправить журнал фоновой работы") }
                 if (stalls > 0) TextButton(onClick = { settings.stallCount = 0; settings.stallSec = 0; stalls = 0 }) {
@@ -455,41 +445,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Composable
+    private fun BgStep(ok: Boolean, good: String, bad: String, action: String, onAction: () -> Unit) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (ok) "✓ $good" else "✗ $bad", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            if (!ok) TextButton(onClick = onAction) { Text(action) }
+        }
+    }
+
     private fun shareLog() {
         val head = "Transcriber ${packageManager.getPackageInfo(packageName, 0).versionName}; " +
             "${Build.MANUFACTURER} ${Build.MODEL}; Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); " +
-            "игнор батареи=${Background.ignoringBatteryOptimizations(this)}; тихий звук=${settings.keepAliveAudio}; " +
-            "заморозок=${settings.stallCount}\n\n"
+            Background.summary(this) + "; настроено у производителя=${settings.bgConfirmed}; " +
+            "остановок=${settings.stallCount}\n\n"
         shareFile(head + BgLog.text(), "transcriber-bg-log")
-    }
-
-    /** Почти выключенный экран: чёрный фон и минимальная яркость; экран не гаснет, поэтому система не замораживает работу. */
-    @Composable
-    fun DimScreen(onExit: () -> Unit) {
-        val jobs by Jobs.items.collectAsStateWithLifecycle()
-        val running = jobs.firstOrNull { it.status == Status.RUNNING }
-        DisposableEffect(Unit) {
-            val lp = window.attributes
-            lp.screenBrightness = 0.01f
-            window.attributes = lp
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            onDispose {
-                val l = window.attributes
-                l.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                window.attributes = l
-                applyKeepScreenOn()
-            }
-        }
-        Box(
-            Modifier.fillMaxSize().background(Color.Black).clickable(onClick = onExit),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                if (running != null) "${running.label}\n${running.stage} ${(running.progress * 100).toInt()}%\n\nнажмите, чтобы выйти"
-                else "Готово\n\nнажмите, чтобы выйти",
-                color = Color(0xFF444444), fontSize = 16.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-        }
     }
 
     private fun Set<Long>.toggle(id: Long) = if (id in this) this - id else this + id

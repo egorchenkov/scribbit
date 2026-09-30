@@ -70,6 +70,7 @@ object Jobs {
         changed?.let {
             // Аудио не храним: после готового текста рабочая копия не нужна
             if (it.status == Status.DONE && keepsNoAudio(it)) it.file.delete()
+            if (it.status == Status.DONE) dropCheckpoint(it.id)
             save(it)
         }
     }
@@ -91,12 +92,13 @@ object Jobs {
         _items.value.firstOrNull { it.id == id }?.let { deleteIfTemp(it.file) }
         _items.update { list -> list.filterNot { it.id == id } }
         jsonFile(id)?.delete()
+        dropCheckpoint(id)
     }
 
     fun clear() {
         // «Очистить» убирает только очередь и ошибки; история (DONE) остаётся
         val gone = _items.value.filter { it.status == Status.QUEUED || it.status == Status.ERROR }
-        gone.forEach { deleteIfTemp(it.file); jsonFile(it.id)?.delete() }
+        gone.forEach { deleteIfTemp(it.file); jsonFile(it.id)?.delete(); dropCheckpoint(it.id) }
         val ids = gone.map { it.id }.toSet()
         _items.update { list -> list.filterNot { it.id in ids } }
     }
@@ -108,6 +110,48 @@ object Jobs {
     }
 
     private fun jsonFile(id: Long) = dir?.let { File(it, "$id.json") }
+
+    // Точка продолжения распознавания (filesDir/jobs/{id}.ckpt); key — модель и настройки, с которыми она получена
+    private fun ckptFile(id: Long) = dir?.let { File(it, "$id.ckpt") }
+
+    fun saveCheckpoint(id: Long, key: String, c: Checkpoint) {
+        val target = ckptFile(id) ?: return
+        runCatching {
+            val o = JSONObject().apply {
+                put("key", key); put("next", c.nextSample); put("windows", c.windows)
+                put("pieces", piecesJson(c.pieces))
+                put("sums", JSONArray().also { a -> c.sums.forEach { v -> a.put(JSONArray().also { x -> v.forEach { x.put(it.toDouble()) } }) } })
+                put("counts", JSONArray(c.counts))
+            }
+            val tmp = File(target.path + ".tmp")
+            tmp.writeText(o.toString())
+            tmp.renameTo(target)
+        }
+    }
+
+    /** Точка продолжения, если она получена с теми же настройками. */
+    fun loadCheckpoint(id: Long, key: String): Checkpoint? = runCatching {
+        val o = JSONObject(ckptFile(id)!!.readText())
+        if (o.getString("key") != key) return null
+        val sums = o.getJSONArray("sums")
+        val counts = o.getJSONArray("counts")
+        Checkpoint(
+            o.getInt("next"), o.getInt("windows"), pieces(o.getJSONArray("pieces")),
+            List(sums.length()) { i -> sums.getJSONArray(i).let { a -> FloatArray(a.length()) { a.getDouble(it).toFloat() } } },
+            List(counts.length()) { counts.getInt(it) },
+        )
+    }.getOrNull()
+
+    fun dropCheckpoint(id: Long) { ckptFile(id)?.delete() }
+
+    private fun piecesJson(list: List<Piece>) = JSONArray().also { a ->
+        list.forEach { p -> a.put(JSONArray().put(p.start.toDouble()).put(p.end.toDouble()).put(p.text).put(p.speaker)) }
+    }
+
+    private fun pieces(a: JSONArray) = List(a.length()) { i ->
+        val p = a.getJSONArray(i)
+        Piece(p.getDouble(0).toFloat(), p.getDouble(1).toFloat(), p.getString(2), p.getInt(3))
+    }
 
     private fun save(job: Job) {
         val target = jsonFile(job.id) ?: return
@@ -127,11 +171,7 @@ object Jobs {
             put("result", JSONObject().apply {
                 put("name", t.name); put("duration", t.durationSec.toDouble()); put("model", t.model)
                 put("diarized", t.diarized)
-                put("pieces", JSONArray().also { a ->
-                    t.pieces.forEach { p ->
-                        a.put(JSONArray().put(p.start.toDouble()).put(p.end.toDouble()).put(p.text).put(p.speaker))
-                    }
-                })
+                put("pieces", piecesJson(t.pieces))
             })
         }
     }
@@ -139,14 +179,9 @@ object Jobs {
     private fun fromJson(o: JSONObject): Job {
         val st = Status.valueOf(o.getString("status"))
         val result = o.optJSONObject("result")?.let { r ->
-            val a = r.getJSONArray("pieces")
             Transcript(
                 r.getString("name"), r.getDouble("duration").toFloat(), r.getString("model"),
-                List(a.length()) { i ->
-                    val p = a.getJSONArray(i)
-                    Piece(p.getDouble(0).toFloat(), p.getDouble(1).toFloat(), p.getString(2), p.getInt(3))
-                },
-                r.getBoolean("diarized"),
+                pieces(r.getJSONArray("pieces")), r.getBoolean("diarized"),
             )
         }
         return Job(

@@ -53,10 +53,12 @@ class Transcriber(
         file: File,
         onProgress: (Float, String) -> Unit,
         cancelled: () -> Boolean,
+        resume: Checkpoint? = null,
+        onCheckpoint: (Checkpoint) -> Unit = {},
     ): Transcript {
         val uri = Uri.fromFile(file)
         val duration = AudioDecoder.durationSec(ctx, uri)
-        val pieces = pipeline.run({ cb -> AudioDecoder.decode(ctx, uri, cb) }, duration, onProgress, cancelled)
+        val pieces = pipeline.run({ cb -> AudioDecoder.decode(ctx, uri, cb) }, duration, onProgress, cancelled, resume, onCheckpoint)
         return Transcript(name, duration, spec.title, pieces, pipeline.diarized)
     }
 

@@ -29,6 +29,18 @@ data class Transcript(
 
 class Cancelled : Exception("отменено")
 
+/**
+ * Точка продолжения: готовы первые [windows] окон (звук до отсчёта [nextSample]), их текст и
+ * центроиды говорящих. Если систему убьёт процесс, распознавание продолжится отсюда, а не с нуля.
+ */
+class Checkpoint(
+    val nextSample: Int,
+    val windows: Int,
+    val pieces: List<Piece>,
+    val sums: List<FloatArray>,
+    val counts: List<Int>,
+)
+
 /** Источник звука: вызывает колбэк с порциями 16 кГц моно и позицией (с); false — прервать. */
 typealias AudioSource = ((FloatArray, Float) -> Boolean) -> Unit
 
@@ -74,9 +86,11 @@ class Pipeline(
         duration: Float,
         onProgress: (Float, String) -> Unit,
         cancelled: () -> Boolean,
+        resume: Checkpoint? = null,
+        onCheckpoint: (Checkpoint) -> Unit = {},
     ): List<Piece> =
         if (diarizers.isEmpty()) plain(source, duration, onProgress, cancelled)
-        else withSpeakers(source, duration, onProgress, cancelled)
+        else withSpeakers(source, duration, onProgress, cancelled, resume, onCheckpoint)
 
     private fun plain(
         source: AudioSource,
@@ -103,23 +117,28 @@ class Pipeline(
      * Звук идёт окнами по windowSec: диаризация окон — параллельно в пуле (до diarizers.size окон вперёд),
      * сшивка говорящих и распознавание — по порядку в вызывающем потоке, пока пул считает следующие окна.
      * В памяти одновременно не больше diarizers.size + 1 окон, а не весь файл.
+     * После каждого готового окна — точка продолжения; с [resume] звук до неё пропускается.
      */
     private fun withSpeakers(
         source: AudioSource,
         duration: Float,
         onProgress: (Float, String) -> Unit,
         cancelled: () -> Boolean,
+        resume: Checkpoint?,
+        onCheckpoint: (Checkpoint) -> Unit,
     ): List<Piece> {
-        val out = mutableListOf<Piece>()
-        val book = SpeakerBook(sameSpeaker)
+        val out = resume?.pieces?.toMutableList() ?: mutableListOf()
+        val book = SpeakerBook(sameSpeaker).also { b -> resume?.let { b.restore(it.sums, it.counts) } }
         val windowSamples = (windowSec * SAMPLE_RATE).toInt()
         val win = GrowableFloats(windowSamples + SAMPLE_RATE)
         val free = LinkedBlockingQueue(diarizers)
         val pool = Executors.newFixedThreadPool(diarizers.size)
         val pending = ArrayDeque<Pair<Window, Future<Array<OfflineSpeakerDiarizationSegment>>>>()
         val expected = if (duration > 0) Math.ceil(duration / windowSec.toDouble()).toInt() else 0
-        var submitted = 0
-        var winStart = 0
+        var submitted = resume?.windows ?: 0
+        var winStart = resume?.nextSample ?: 0
+        val skip = winStart
+        var seen = 0
 
         fun submit() {
             val w = Window(submitted++, winStart, win.toArray())
@@ -188,10 +207,19 @@ class Pipeline(
                 doneSec += turn.end - turn.start
                 progress(0.5f + 0.5f * doneSec / total, "распознавание")
             }
+            val (sums, counts) = book.snapshot()
+            onCheckpoint(Checkpoint(w.start + w.samples.size, w.index + 1, out.toList(), sums, counts))
         }
 
         try {
-            source { chunk, _ ->
+            source { raw, _ ->
+                // Продолжение: звук уже распознанных окон пропускаем
+                val chunk = when {
+                    seen >= skip -> raw
+                    seen + raw.size <= skip -> FloatArray(0)
+                    else -> raw.copyOfRange(skip - seen, raw.size)
+                }
+                seen += raw.size
                 win.add(chunk)
                 if (win.size >= windowSamples) {
                     submit()
@@ -314,6 +342,14 @@ class Pipeline(
 private class SpeakerBook(private val threshold: Float) {
     private val sums = mutableListOf<FloatArray>()
     private val counts = mutableListOf<Int>()
+
+    fun snapshot(): Pair<List<FloatArray>, List<Int>> = sums.map { it.copyOf() } to counts.toList()
+
+    fun restore(s: List<FloatArray>, c: List<Int>) {
+        sums.clear(); counts.clear()
+        s.forEach { sums += it.copyOf() }
+        counts += c
+    }
 
     /** Номер похожего говорящего или новый; без эмбеддинга — ближайший по времени новый. */
     fun assign(e: FloatArray?): Int {
