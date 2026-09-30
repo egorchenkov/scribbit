@@ -10,7 +10,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.view.WindowManager
 import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -103,6 +105,7 @@ class MainActivity : ComponentActivity() {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         if (savedInstanceState == null) handleIntent(intent)
+        lifecycleScope.launch { Jobs.items.collect { applyKeepScreenOn() } }
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 var screen by remember { mutableStateOf("main") }
@@ -115,6 +118,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Экран не гаснет, пока идёт распознавание (если включено в настройках): иначе некоторые прошивки замораживают процесс. */
+    fun applyKeepScreenOn() {
+        val on = settings.keepScreenOn && Jobs.isRunning
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -205,6 +215,7 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(recError) { recError?.let { toast(it); RecorderService.error.value = null } }
 
+        val bgAttention = bgNeedsAttention()
         val active = jobs.filter { it.status != Status.DONE }
         val history = jobs.filter { it.status == Status.DONE }.sortedByDescending { it.createdAt }
         var selected by remember { mutableStateOf(emptySet<Long>()) }
@@ -262,6 +273,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                if (bgAttention) item { BackgroundCard() }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         if (rec == null) {
@@ -350,6 +362,77 @@ class MainActivity : ComponentActivity() {
                             "или файлом из Telegram → «Транскрибатор». Готовые тексты будут храниться здесь.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+    }
+
+    /** Фон настроен, если снято ограничение батареи и (для прошивок со своим менеджером) пользователь подтвердил шаги. */
+    private fun bgOk() = Background.ignoringBatteryOptimizations(this) &&
+        (!Background.hasOemManager || settings.bgConfirmed)
+
+    @Composable
+    private fun bgNeedsAttention(): Boolean {
+        var need by remember { mutableStateOf(!bgOk() || settings.stallCount > 0) }
+        LaunchedEffect(Unit) { while (true) { need = !bgOk() || settings.stallCount > 0; delay(1500) } }
+        return need
+    }
+
+    /** Настройка работы при выключенном экране: статус, кнопки, инструкция под производителя. */
+    @Composable
+    private fun BackgroundCard() {
+        var ignoring by remember { mutableStateOf(Background.ignoringBatteryOptimizations(this)) }
+        var confirmed by remember { mutableStateOf(settings.bgConfirmed) }
+        var keepOn by remember { mutableStateOf(settings.keepScreenOn) }
+        var stalls by remember { mutableIntStateOf(settings.stallCount) }
+        LaunchedEffect(Unit) {
+            while (true) { ignoring = Background.ignoringBatteryOptimizations(this@MainActivity); delay(1000) }
+        }
+        val ok = ignoring && (!Background.hasOemManager || confirmed)
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (ok && stalls == 0) MaterialTheme.colorScheme.surfaceVariant
+                else MaterialTheme.colorScheme.tertiaryContainer,
+            ),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (ok) "✓ Работа при выключенном экране настроена" else "⚠ Работа при выключенном экране",
+                    fontWeight = FontWeight.Bold,
+                )
+                if (stalls > 0) Text(
+                    "Система замораживала распознавание при выключенном экране: $stalls раз, " +
+                        "всего ${settings.stallSec / 60} мин. Проверьте шаги ниже или включите «Не гасить экран».",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    (if (ignoring) "✓ Ограничение батареи снято" else "✗ Батарея ограничивает приложение"),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (!ignoring) Button(onClick = { Background.requestIgnore(this@MainActivity) }) { Text("Не ограничивать батарею") }
+                if (Background.hasOemManager) {
+                    Text(Background.instruction(), style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { Background.openOemManager(this@MainActivity) }) { Text("Открыть настройки") }
+                        if (!confirmed) TextButton(onClick = {
+                            settings.bgConfirmed = true; settings.stallCount = 0; settings.stallSec = 0
+                            confirmed = true; stalls = 0
+                        }) { Text("Готово, настроил") }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Не гасить экран при распознавании")
+                        Text(
+                            "Надёжно на любом телефоне; работает, пока приложение открыто. Лучше на зарядке.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(checked = keepOn, onCheckedChange = { keepOn = it; settings.keepScreenOn = it; applyKeepScreenOn() })
+                }
+                if (stalls > 0) TextButton(onClick = { settings.stallCount = 0; settings.stallSec = 0; stalls = 0 }) {
+                    Text("Сбросить счётчик")
                 }
             }
         }
@@ -638,6 +721,10 @@ class MainActivity : ComponentActivity() {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                item {
+                    Section("Работа в фоне")
+                    BackgroundCard()
                 }
                 item {
                     Section("Текст")

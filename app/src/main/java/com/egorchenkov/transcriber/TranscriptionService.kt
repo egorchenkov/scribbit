@@ -24,6 +24,8 @@ class TranscriptionService : Service() {
     @Volatile private var working = false
     private lateinit var wakeLock: PowerManager.WakeLock
     private var lastNotify = 0L
+    private var lastProgressAt = 0L
+    private var lastInteractive = true
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -62,7 +64,9 @@ class TranscriptionService : Service() {
                     if (!mm.isInstalled(spec)) error("модель «${spec.title}» не скачана — откройте настройки")
                     val t = transcriber ?: Transcriber(this, spec, settings.language, diarize, settings.speakers)
                         .also { transcriber = it }
+                    lastProgressAt = 0L
                     val result = t.transcribe(job.name, job.file, { p, stage ->
+                        noteProgress(settings)
                         Jobs.update(job.id) { it.copy(progress = p, stage = stage) }
                         notifyProgress(job.name, p, stage)
                     }, { Jobs.cancelRequested })
@@ -82,6 +86,20 @@ class TranscriptionService : Service() {
             if (done > 0) notifyDone(done)
             stopSelf()
         }
+    }
+
+    /**
+     * Долгая пауза между отчётами о прогрессе при выключенном экране — признак заморозки процесса
+     * системой (менеджер питания производителя). Считаем такие паузы, чтобы подсказать настройку.
+     */
+    private fun noteProgress(settings: Settings) {
+        val now = System.currentTimeMillis()
+        if (lastProgressAt != 0L && !lastInteractive && now - lastProgressAt > STALL_MS) {
+            settings.stallCount += 1
+            settings.stallSec += (now - lastProgressAt) / 1000
+        }
+        lastProgressAt = now
+        lastInteractive = getSystemService(PowerManager::class.java).isInteractive
     }
 
     private fun progressNotification(text: String, p: Float): Notification =
@@ -126,6 +144,7 @@ class TranscriptionService : Service() {
     companion object {
         private const val NOTIF_ID = 1
         private const val DONE_ID = 3
+        private const val STALL_MS = 90_000L
 
         fun start(ctx: Context) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, TranscriptionService::class.java))

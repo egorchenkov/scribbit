@@ -27,4 +27,23 @@ class Settings(ctx: Context) {
     var speakers: Int
         get() = p.getInt("speakers", 0)
         set(v) = p.edit().putInt("speakers", v).apply()
+
+    /** Не гасить экран, пока идёт распознавание и приложение открыто. */
+    var keepScreenOn: Boolean
+        get() = p.getBoolean("keepScreenOn", false)
+        set(v) = p.edit().putBoolean("keepScreenOn", v).apply()
+
+    /** Пользователь отметил, что настроил фоновую работу в системных настройках производителя. */
+    var bgConfirmed: Boolean
+        get() = p.getBoolean("bgConfirmed", false)
+        set(v) = p.edit().putBoolean("bgConfirmed", v).apply()
+
+    /** Сколько раз и на сколько секунд система замораживала распознавание при выключенном экране. */
+    var stallCount: Int
+        get() = p.getInt("stallCount", 0)
+        set(v) = p.edit().putInt("stallCount", v).apply()
+
+    var stallSec: Long
+        get() = p.getLong("stallSec", 0L)
+        set(v) = p.edit().putLong("stallSec", v).apply()
 }
