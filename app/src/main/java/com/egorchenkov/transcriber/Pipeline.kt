@@ -220,6 +220,11 @@ class Pipeline(
                     else -> raw.copyOfRange(skip - seen, raw.size)
                 }
                 seen += raw.size
+                // Пропуск готового тоже занимает время (звук декодируется с начала) — показываем, что идёт
+                if (chunk.isEmpty() && duration > 0 && seen / SKIP_REPORT != (seen - raw.size) / SKIP_REPORT) {
+                    onProgress((seen / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f),
+                        "продолжение с части ${resume!!.windows + 1} · пропуск готового")
+                }
                 win.add(chunk)
                 if (win.size >= windowSamples) {
                     submit()
@@ -335,6 +340,7 @@ class Pipeline(
         const val VAD_WINDOW = 512
         /** Запас по краям фрагмента речи, отсчёты (0.25 с). */
         const val PAD = SAMPLE_RATE / 4
+        const val SKIP_REPORT = SAMPLE_RATE * 5 // отчёт о пропуске готового — раз в 5 с звука
     }
 }
 

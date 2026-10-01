@@ -125,6 +125,15 @@ object BgLog {
                 log("прошлый выход: причина=${it.reason} статус=${it.status} важность=${it.importance} " +
                     "память=${it.pss / 1024}МБ время=${fmt.format(java.util.Date(it.timestamp))} ${it.description.orEmpty()}")
             }
+            // Нативное падение: в трассировке (tombstone) ищем сообщение об аварии и имена функций — без данных записи
+            am.getHistoricalProcessExitReasons(ctx.packageName, 0, 1).firstOrNull()
+                ?.takeIf { it.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE }
+                ?.traceInputStream?.use { st ->
+                    val runs = Regex("[ -~]{8,}").findAll(String(st.readBytes(), Charsets.ISO_8859_1)).map { it.value }
+                    val keys = listOf("terminate", "bad_alloc", "what(", "Abort", "std::", "Check failed", "ailed", "libsherpa", "libonnx")
+                    runs.filter { r -> keys.any { r.contains(it) } }.distinct().take(25)
+                        .forEach { log("трассировка: " + it.take(200)) }
+                }
         }
     }
 
