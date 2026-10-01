@@ -300,7 +300,9 @@ class Pipeline(
         for (t in turns.sortedByDescending { it.end - it.start }) {
             if (size >= 30 * SAMPLE_RATE) break
             val from = (t.start * SAMPLE_RATE).toInt().coerceIn(0, samples.size)
-            val to = (t.end * SAMPLE_RATE).toInt().coerceIn(from, samples.size)
+            // Одна длинная реплика (в окне бывает ~270 с монолога) не должна превышать лимит: на 4+ минутах
+            // нативный извлекатель падал (SIGABRT, ~1,2 ГБ); берём не больше оставшихся до 30 с
+            val to = minOf((t.end * SAMPLE_RATE).toInt(), from + 30 * SAMPLE_RATE - size).coerceIn(from, samples.size)
             parts += samples.copyOfRange(from, to)
             size += to - from
         }
