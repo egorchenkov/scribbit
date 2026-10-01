@@ -72,6 +72,9 @@ class Pipeline(
     /** Время по стадиям, мс (для замеров в tools/jvm-check); диаризация — сумма по потокам. */
     val timings: MutableMap<String, Long> = java.util.Collections.synchronizedMap(LinkedHashMap())
 
+    /** Заметка в журнал (только метрики); на телефоне подключается к BgLog. */
+    var note: (String) -> Unit = {}
+
     private inline fun <T> timed(stage: String, block: () -> T): T {
         val t = System.nanoTime()
         try {
@@ -301,10 +304,15 @@ class Pipeline(
             parts += samples.copyOfRange(from, to)
             size += to - from
         }
-        if (size < SAMPLE_RATE / 2) return null
+        // Совсем короткий звук (<1,5 с) ронял нативный извлекатель (SIGABRT) — такой отпечаток не считаем
+        if (size < SAMPLE_RATE * 3 / 2) return null
+        val joined = FloatArray(size)
+        var pos = 0
+        for (p in parts) { p.copyInto(joined, pos); pos += p.size }
+        note("отпечаток: ${size / SAMPLE_RATE.toFloat()} с, кусков ${parts.size}")
         val stream = e.createStream()
         try {
-            parts.forEach { stream.acceptWaveform(it, SAMPLE_RATE) }
+            stream.acceptWaveform(joined, SAMPLE_RATE)
             stream.inputFinished()
             return if (e.isReady(stream)) e.compute(stream) else null
         } finally {

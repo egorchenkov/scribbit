@@ -45,4 +45,4 @@ fun diarizationConfig(segmentation: String, embedding: String, threads: Int, thr
     )
 
 /** Сколько окон диаризации считать параллельно: ядра минус два под распознавание и декодер, 1..3. */
-fun diarParallel() = 1 // 0.4.4: проверка, не память ли (в 0.4.3 три экземпляра падали на ~1,2 ГБ)
+fun diarParallel() = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(1, 3)

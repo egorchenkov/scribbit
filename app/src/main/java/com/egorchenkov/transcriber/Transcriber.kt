@@ -46,7 +46,7 @@ class Transcriber(
         SpeakerEmbeddingExtractorConfig(mm.file(Models.diarization, "embedding.onnx").absolutePath, threads),
     )
 
-    private val pipeline = Pipeline(recognizer, vad, diarizers, embedder, spec.maxChunkSec, numSpeakers)
+    private val pipeline = Pipeline(recognizer, vad, diarizers, embedder, spec.maxChunkSec, numSpeakers).also { it.note = BgLog::log }
 
     fun transcribe(
         name: String,
