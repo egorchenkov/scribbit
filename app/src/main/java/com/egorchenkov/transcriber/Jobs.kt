@@ -118,7 +118,7 @@ object Jobs {
         val target = ckptFile(id) ?: return
         runCatching {
             val o = JSONObject().apply {
-                put("key", key); put("next", c.nextSample); put("windows", c.windows)
+                put("key", key); put("next", c.nextSample); put("windows", c.windows); put("attempts", c.attempts)
                 put("pieces", piecesJson(c.pieces))
                 put("sums", JSONArray().also { a -> c.sums.forEach { v -> a.put(JSONArray().also { x -> v.forEach { x.put(it.toDouble()) } }) } })
                 put("counts", JSONArray(c.counts))
@@ -139,6 +139,7 @@ object Jobs {
             o.getInt("next"), o.getInt("windows"), pieces(o.getJSONArray("pieces")),
             List(sums.length()) { i -> sums.getJSONArray(i).let { a -> FloatArray(a.length()) { a.getDouble(it).toFloat() } } },
             List(counts.length()) { counts.getInt(it) },
+            o.optInt("attempts", 0),
         )
     }.getOrNull()
 

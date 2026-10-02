@@ -521,7 +521,7 @@ class MainActivity : ComponentActivity() {
                     )
                     Text(
                         Formatter.dateTime(job.createdAt) + " · " + Formatter.time(t?.durationSec ?: 0f) +
-                            (if (t?.diarized == true) " · говорящих: ${t.pieces.map { it.speaker }.distinct().size}" else ""),
+                            (if (t?.diarized == true) " · говорящих: ${t.pieces.map { it.speaker }.filter { it >= 0 }.distinct().size}" else ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

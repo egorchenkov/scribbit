@@ -39,7 +39,24 @@ class Checkpoint(
     val pieces: List<Piece>,
     val sums: List<FloatArray>,
     val counts: List<Int>,
-)
+    /** Сколько раз с этой точки уже начинали и не дошли до следующей (падения процесса). */
+    val attempts: Int = 0,
+) {
+    fun withAttempts(n: Int) = Checkpoint(nextSample, windows, pieces, sums, counts, n)
+
+    /**
+     * Пропуск части, которая раз за разом роняет процесс: точка сдвигается на одно окно вперёд,
+     * в тексте остаётся отметка. Иначе система перезапускала бы сервис на той же части бесконечно
+     * (на Huawei — 32 раза подряд).
+     */
+    fun skipWindow(windowSec: Float, marker: String): Checkpoint {
+        val w = (windowSec * SAMPLE_RATE).toInt()
+        val start = nextSample / SAMPLE_RATE.toFloat()
+        // speaker = -1: отметка выводится без «Спикер N» и в счёт говорящих не идёт
+        val piece = Piece(start, start + windowSec, marker, -1)
+        return Checkpoint(nextSample + w, windows + 1, pieces + piece, sums, counts, 0)
+    }
+}
 
 /** Источник звука: вызывает колбэк с порциями 16 кГц моно и позицией (с); false — прервать. */
 typealias AudioSource = ((FloatArray, Float) -> Boolean) -> Unit
@@ -61,7 +78,7 @@ class Pipeline(
      * Длина окна диаризации: в памяти держим окна, а не весь файл (4 ч = ~900 МБ).
      * 300 с: на AMI DER 20.8 % против 20.0 % у 600 с, зато паузы прогресса вдвое короче (docs/benchmark.md).
      */
-    private val windowSec: Float = 300f,
+    private val windowSec: Float = DEFAULT_WINDOW_SEC,
     /** Порог косинусной близости «тот же человек» при сшивке окон: 0.4 уже сливает разных людей, 0.5–0.6 — ок. */
     private val sameSpeaker: Float = 0.6f,
     /** Говорящий, у которого в окне меньше этого (с), — осколок: присоединяется к ближайшему. */
@@ -92,28 +109,69 @@ class Pipeline(
         resume: Checkpoint? = null,
         onCheckpoint: (Checkpoint) -> Unit = {},
     ): List<Piece> =
-        if (diarizers.isEmpty()) plain(source, duration, onProgress, cancelled)
+        if (diarizers.isEmpty()) plain(source, duration, onProgress, cancelled, resume, onCheckpoint)
         else withSpeakers(source, duration, onProgress, cancelled, resume, onCheckpoint)
 
+    /**
+     * Без разделения говорящих: звук идёт сплошным потоком через VAD, но раз в windowSec — на ближайшей
+     * паузе (не дольше чем через минуту) — поток закрывается и ставится точка продолжения, как и с говорящими.
+     */
     private fun plain(
         source: AudioSource,
         duration: Float,
         onProgress: (Float, String) -> Unit,
         cancelled: () -> Boolean,
+        resume: Checkpoint?,
+        onCheckpoint: (Checkpoint) -> Unit,
     ): List<Piece> {
-        val out = mutableListOf<Piece>()
-        val batcher = Batcher(maxChunkSec) { start, samples ->
-            recognize(samples)?.let { out += Piece(start, start + samples.size / SAMPLE_RATE.toFloat(), it) }
+        val out = resume?.pieces?.toMutableList() ?: mutableListOf()
+        val windowSamples = (windowSec * SAMPLE_RATE).toInt()
+        val forceSamples = windowSamples + 60 * SAMPLE_RATE
+        val skip = resume?.nextSample ?: 0
+        var windows = resume?.windows ?: 0
+        var winStart = skip
+        var fed = skip
+        var seen = 0
+        lateinit var feeder: VadFeeder
+        fun newFeeder() {
+            feeder = VadFeeder(vad, winStart, Batcher(maxChunkSec) { start, samples ->
+                recognize(samples)?.let { out += Piece(start, start + samples.size / SAMPLE_RATE.toFloat(), it) }
+            })
         }
-        val feeder = VadFeeder(vad, 0, batcher)
-        source { chunk, t ->
-            feeder.feed(chunk)
-            if (duration > 0) onProgress((t / duration).coerceIn(0f, 1f), "распознавание")
+        newFeeder()
+        source { raw, _ ->
+            val chunk = skipDone(raw, seen, skip)
+            seen += raw.size
+            if (chunk.isEmpty()) {
+                if (duration > 0 && seen / SKIP_REPORT != (seen - raw.size) / SKIP_REPORT) {
+                    onProgress((seen / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f),
+                        "продолжение с части ${resume!!.windows + 1} · пропуск готового")
+                }
+            } else {
+                feeder.feed(chunk)
+                fed += chunk.size
+                if (duration > 0) onProgress((fed / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f), "распознавание")
+                val inWindow = fed - winStart
+                if (inWindow >= windowSamples && (!vad.isSpeechDetected() || inWindow >= forceSamples)) {
+                    feeder.finish()
+                    windows++
+                    winStart = fed
+                    onCheckpoint(Checkpoint(fed, windows, out.toList(), emptyList(), emptyList()))
+                    newFeeder()
+                }
+            }
             !cancelled()
         }
         if (cancelled()) throw Cancelled()
         feeder.finish()
         return out
+    }
+
+    /** Продолжение: звук до точки [skip] уже распознан — отдаём только то, что после неё. */
+    private fun skipDone(raw: FloatArray, seen: Int, skip: Int): FloatArray = when {
+        seen >= skip -> raw
+        seen + raw.size <= skip -> FloatArray(0)
+        else -> raw.copyOfRange(skip - seen, raw.size)
     }
 
     /**
@@ -216,12 +274,7 @@ class Pipeline(
 
         try {
             source { raw, _ ->
-                // Продолжение: звук уже распознанных окон пропускаем
-                val chunk = when {
-                    seen >= skip -> raw
-                    seen + raw.size <= skip -> FloatArray(0)
-                    else -> raw.copyOfRange(skip - seen, raw.size)
-                }
+                val chunk = skipDone(raw, seen, skip)
                 seen += raw.size
                 // Пропуск готового тоже занимает время (звук декодируется с начала) — показываем, что идёт
                 if (chunk.isEmpty() && duration > 0 && seen / SKIP_REPORT != (seen - raw.size) / SKIP_REPORT) {
@@ -249,8 +302,10 @@ class Pipeline(
         val merged = book.mergeTo(numSpeakers)
         val order = LinkedHashMap<Int, Int>()
         return out.sortedBy { it.start }.map {
-            val id = merged[it.speaker]
-            it.copy(speaker = order.getOrPut(id) { order.size })
+            if (it.speaker < 0) it else {
+                val id = merged[it.speaker]
+                it.copy(speaker = order.getOrPut(id) { order.size })
+            }
         }
     }
 
@@ -347,6 +402,7 @@ class Pipeline(
     }
 
     companion object {
+        const val DEFAULT_WINDOW_SEC = 300f
         const val VAD_WINDOW = 512
         /** Запас по краям фрагмента речи, отсчёты (0.25 с). */
         const val PAD = SAMPLE_RATE / 4

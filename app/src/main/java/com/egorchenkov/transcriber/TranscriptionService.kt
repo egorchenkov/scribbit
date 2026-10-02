@@ -41,10 +41,13 @@ class TranscriptionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            ServiceCompat.startForeground(
-                this, NOTIF_ID, progressNotification("Подготовка…", 0f),
-                if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
-            )
+            // Android 14+: specialUse — без суточного лимита (dataSync на Android 15 обрезается через 6 ч/сутки)
+            val type = when {
+                Build.VERSION.SDK_INT >= 34 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                Build.VERSION.SDK_INT >= 29 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                else -> 0
+            }
+            ServiceCompat.startForeground(this, NOTIF_ID, progressNotification("Подготовка…", 0f), type)
         } catch (e: Exception) {
             // Android 12+: из фона без исключения из экономии батареи запуск запрещён — продолжим при открытии приложения
             BgLog.log("запуск в фоне запрещён системой: ${e.javaClass.simpleName}")
@@ -84,15 +87,24 @@ class TranscriptionService : Service() {
             while (!Jobs.cancelRequested) {
                 val job = Jobs.nextQueued() ?: break
                 Jobs.update(job.id) { it.copy(status = Status.RUNNING, progress = 0f, stage = "загрузка модели") }
+                val key = "${spec.id}|${settings.language}|$diarize|${settings.speakers}"
                 try {
                     if (!mm.isInstalled(spec)) error("модель «${spec.title}» не скачана — откройте настройки")
                     val t = transcriber ?: Transcriber(this, spec, settings.language, diarize, settings.speakers)
                         .also { transcriber = it }
                     lastProgressAt = 0L
-                    val key = "${spec.id}|${settings.language}|$diarize|${settings.speakers}"
-                    val resume = Jobs.loadCheckpoint(job.id, key)
+                    var resume = Jobs.loadCheckpoint(job.id, key)
                     if (resume != null) {
-                        BgLog.log("продолжение с части ${resume.windows + 1}")
+                        if (resume.attempts >= MAX_ATTEMPTS) {
+                            // Часть раз за разом роняет процесс (нативное падение): пропускаем её, а не крутим вечно
+                            BgLog.log("часть ${resume.windows + 1} роняла процесс ${resume.attempts} раз — пропущена")
+                            resume = resume.skipWindow(Pipeline.DEFAULT_WINDOW_SEC, "[часть ${resume.windows + 1} пропущена: сбой распознавания]")
+                        } else {
+                            // Попытка отмечается до начала работы: если процесс упадёт, она останется в точке
+                            resume = resume.withAttempts(resume.attempts + 1)
+                        }
+                        Jobs.saveCheckpoint(job.id, key, resume)
+                        BgLog.log("продолжение с части ${resume.windows + 1}, попытка ${resume.attempts}")
                         Jobs.update(job.id) { it.copy(stage = "продолжение с части ${resume.windows + 1}") }
                     }
                     val result = t.transcribe(job.name, job.file, { p, stage ->
@@ -103,6 +115,8 @@ class TranscriptionService : Service() {
                     Jobs.update(job.id) { it.copy(status = Status.DONE, progress = 1f, result = result) }
                     done++
                 } catch (e: Cancelled) {
+                    // Остановка пользователем — не падение: попытки на точке обнуляем
+                    Jobs.loadCheckpoint(job.id, key)?.takeIf { it.attempts > 0 }?.let { Jobs.saveCheckpoint(job.id, key, it.withAttempts(0)) }
                     Jobs.update(job.id) { it.copy(status = Status.QUEUED, progress = 0f, stage = "") }
                 } catch (e: Throwable) {
                     Jobs.update(job.id) { it.copy(status = Status.ERROR, error = e.message ?: e.javaClass.simpleName) }
@@ -189,6 +203,15 @@ class TranscriptionService : Service() {
         )
     }
 
+    /**
+     * Android 15: система исчерпала лимит времени для типа сервиса. Останавливаемся мягко —
+     * точка продолжения уже на диске, задача вернётся в очередь и продолжится при следующем запуске.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        BgLog.log("система ограничила время работы в фоне (тип $fgsType) — остановка, продолжим позже")
+        Jobs.cancelRequested = true
+    }
+
     override fun onDestroy() {
         Jobs.cancelRequested = true
         scope.cancel()
@@ -199,6 +222,8 @@ class TranscriptionService : Service() {
         private const val NOTIF_ID = 1
         private const val DONE_ID = 3
         private const val STALL_MS = 90_000L
+        /** Столько раз подряд с одной точки — и часть пропускается. */
+        private const val MAX_ATTEMPTS = 3
         private const val WAKE_MS = 15 * 60 * 1000L
 
         fun start(ctx: Context) {

@@ -29,7 +29,7 @@ object Formatter {
         val sb = StringBuilder()
         sb.append("Транскрипция: ").append(t.name).append('\n')
         val meta = mutableListOf("длительность ${time(t.durationSec)}", t.model)
-        if (t.diarized) meta += "говорящих: ${t.pieces.map { it.speaker }.distinct().size}"
+        if (t.diarized) meta += "говорящих: ${t.pieces.map { it.speaker }.filter { it >= 0 }.distinct().size}"
         sb.append(meta.joinToString(" · ")).append("\n\n")
         if (t.pieces.isEmpty()) {
             sb.append("(речь не обнаружена)")
@@ -37,7 +37,7 @@ object Formatter {
         }
         paragraphs(t).forEach { p ->
             if (timestamps) sb.append('[').append(time(p.start)).append("] ")
-            if (t.diarized) sb.append("Спикер ").append(p.speaker + 1).append(": ")
+            if (t.diarized && p.speaker >= 0) sb.append("Спикер ").append(p.speaker + 1).append(": ")
             sb.append(p.text).append("\n\n")
         }
         return sb.toString().trimEnd()
