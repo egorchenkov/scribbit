@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scribbit — offline speech-to-text for Android</title>
+<meta name="description" content="Scribbit: free open-source Android app for offline transcription. Russian, English, Uzbek, speaker separation. Audio never leaves the phone.">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<style>
+  :root { --bg:#0E7C86; --ink:#1b1f23; --muted:#5c6670; --card:#f3f6f7; }
+  * { box-sizing:border-box }
+  body { margin:0; font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); }
+  header { background:var(--bg); color:#fff; padding:56px 20px 44px; text-align:center; }
+  header img { width:112px; height:112px; border-radius:26px; box-shadow:0 8px 30px rgba(0,0,0,.25); }
+  h1 { margin:18px 0 6px; font-size:40px; letter-spacing:-.5px }
+  .tag { font-size:20px; opacity:.92; margin:0 auto 26px; max-width:600px }
+  .btn { display:inline-block; background:#fff; color:var(--bg); font-weight:700; padding:14px 26px; border-radius:12px; text-decoration:none; font-size:18px }
+  .btn:hover { background:#e8f4f5 }
+  .sub { font-size:14px; opacity:.85; margin-top:10px }
+  .lang { position:absolute; top:14px; right:16px; font-size:14px }
+  .lang button { background:transparent; border:1px solid rgba(255,255,255,.6); color:#fff; border-radius:8px; padding:4px 10px; margin-left:4px; cursor:pointer }
+  .lang button.on { background:#fff; color:var(--bg) }
+  main { max-width:860px; margin:0 auto; padding:30px 20px 60px }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px; margin:26px 0 }
+  .card { background:var(--card); border-radius:14px; padding:18px 20px }
+  .card h3 { margin:0 0 6px; font-size:18px }
+  .card p { margin:0; color:var(--muted); font-size:15px }
+  h2 { margin:36px 0 12px; font-size:26px }
+  ol li, ul li { margin:6px 0 }
+  footer { color:var(--muted); font-size:14px; text-align:center; padding:20px; border-top:1px solid #e4e8ea }
+  a { color:var(--bg) }
+  [data-l] { display:none } [data-l].on { display:block }
+  span[data-l].on, a[data-l].on { display:inline }
+</style>
+</head>
+<body>
+<header style="position:relative">
+  <div class="lang">
+    <button data-set="en">EN</button><button data-set="ru">RU</button><button data-set="uz">UZ</button>
+  </div>
+  <img src="icon.svg" alt="Scribbit">
+  <h1>Scribbit</h1>
+  <p class="tag">
+    <span data-l="en">Offline speech-to-text for Android. Russian, English, Uzbek. Speaker separation. Nothing leaves your phone.</span>
+    <span data-l="ru">Офлайн-расшифровка аудио на Android. Русский, английский, узбекский. Разделение говорящих. Звук не покидает телефон.</span>
+    <span data-l="uz">Android uchun oflayn nutqni matnga aylantirish. Oʻzbekcha, ruscha, inglizcha. Soʻzlovchilarni ajratish. Hech narsa telefondan chiqmaydi.</span>
+  </p>
+  <a class="btn" href="https://github.com/egorchenkov/scribbit/releases/latest">
+    <span data-l="en">Download APK</span><span data-l="ru">Скачать APK</span><span data-l="uz">APK yuklab olish</span>
+  </a>
+  <div class="sub">
+    <span data-l="en">Android 8+, arm64 · free, open source (MIT) · <a style="color:#fff" href="https://github.com/egorchenkov/scribbit">GitHub</a></span>
+    <span data-l="ru">Android 8+, arm64 · бесплатно, открытый код (MIT) · <a style="color:#fff" href="https://github.com/egorchenkov/scribbit">GitHub</a></span>
+    <span data-l="uz">Android 8+, arm64 · bepul, ochiq kod (MIT) · <a style="color:#fff" href="https://github.com/egorchenkov/scribbit">GitHub</a></span>
+  </div>
+</header>
+
+<main>
+  <div data-l="en">
+    <div class="grid">
+      <div class="card"><h3>Three languages, best model for each</h3><p>Russian — GigaAM v3 with punctuation. Uzbek and Kazakh — GigaAM Multilingual. English and ~100 others — Whisper Small.</p></div>
+      <div class="card"><h3>Who said what</h3><p>Speaker separation for meetings and calls: “Speaker 1: …”. Set the number of participants or leave it on auto.</p></div>
+      <div class="card"><h3>Hours-long recordings</h3><p>Processed in 5-minute parts; memory does not grow with length. If the system kills the app, it resumes from the last finished part.</p></div>
+      <div class="card"><h3>Private by design</h3><p>Models are downloaded once. After that the app never touches the network — no cloud, no analytics.</p></div>
+      <div class="card"><h3>Fits your workflow</h3><p>“Share” a voice message from Telegram or any file; record in the background; pick several files at once.</p></div>
+      <div class="card"><h3>Text the way you need it</h3><p>Copy, share to a messenger or an LLM, save as .txt. Timestamps optional.</p></div>
+    </div>
+    <h2>Getting started</h2>
+    <ol>
+      <li>Download the APK from <a href="https://github.com/egorchenkov/scribbit/releases/latest">Releases</a> and open it on the phone; allow installation from this source.</li>
+      <li>Tap the gear, download a speech model (≈215–360 MB) and, for meetings, “Speaker separation” (40 MB).</li>
+      <li>Record, choose files, or share audio into Scribbit — then “Transcribe”.</li>
+    </ol>
+    <p>Updates: add the repository to <a href="https://github.com/ImranR98/Obtainium">Obtainium</a>. Phones with aggressive battery managers (Huawei, Xiaomi, …) need a one-time setting — the app shows a checklist.</p>
+  </div>
+
+  <div data-l="ru">
+    <div class="grid">
+      <div class="card"><h3>Три языка, лучшая модель для каждого</h3><p>Русский — GigaAM v3 с пунктуацией. Узбекский и казахский — GigaAM Multilingual. Английский и ~100 других — Whisper Small.</p></div>
+      <div class="card"><h3>Кто что сказал</h3><p>Разделение говорящих для совещаний и созвонов: «Спикер 1: …». Укажите число участников или оставьте «авто».</p></div>
+      <div class="card"><h3>Многочасовые записи</h3><p>Обрабатываются частями по 5 минут; память не растёт с длиной. Если система убьёт приложение, работа продолжится с последней готовой части.</p></div>
+      <div class="card"><h3>Приватность по умолчанию</h3><p>Модели скачиваются один раз. Дальше приложение не выходит в сеть — ни облака, ни аналитики.</p></div>
+      <div class="card"><h3>Встраивается в привычки</h3><p>«Поделиться» голосовым из Telegram или любым файлом; запись в фоне; несколько файлов разом.</p></div>
+      <div class="card"><h3>Текст — как удобно</h3><p>Скопировать, отправить в мессенджер или LLM, сохранить .txt. Таймкоды по желанию.</p></div>
+    </div>
+    <h2>Как начать</h2>
+    <ol>
+      <li>Скачайте APK со страницы <a href="https://github.com/egorchenkov/scribbit/releases/latest">Releases</a> и откройте на телефоне; разрешите установку из этого источника.</li>
+      <li>Шестерёнка → скачайте модель распознавания (≈215–360 МБ) и, для совещаний, «Разделение говорящих» (40 МБ).</li>
+      <li>Запишите, выберите файлы или поделитесь аудио в Scribbit — затем «Транскрибировать».</li>
+    </ol>
+    <p>Обновления: добавьте репозиторий в <a href="https://github.com/ImranR98/Obtainium">Obtainium</a>. Телефонам с жёстким менеджером батареи (Huawei, Xiaomi, …) нужна разовая настройка — приложение показывает список шагов.</p>
+  </div>
+
+  <div data-l="uz">
+    <div class="grid">
+      <div class="card"><h3>Uch til, har biri uchun eng yaxshi model</h3><p>Oʻzbekcha va qozoqcha — GigaAM Multilingual. Ruscha — GigaAM v3, tinish belgilari bilan. Inglizcha va ~100 boshqa til — Whisper Small.</p></div>
+      <div class="card"><h3>Kim nima dedi</h3><p>Uchrashuv va qoʻngʻiroqlar uchun soʻzlovchilarni ajratish: «1-soʻzlovchi: …». Ishtirokchilar sonini koʻrsating yoki «avto» qoldiring.</p></div>
+      <div class="card"><h3>Koʻp soatli yozuvlar</h3><p>5 daqiqalik qismlarda ishlanadi; xotira uzunlik bilan oʻsmaydi. Tizim ilovani toʻxtatsa, ish oxirgi tayyor qismdan davom etadi.</p></div>
+      <div class="card"><h3>Maxfiylik asosida</h3><p>Modellar bir marta yuklab olinadi. Keyin ilova tarmoqqa chiqmaydi — bulut ham, analitika ham yoʻq.</p></div>
+      <div class="card"><h3>Odatlaringizga mos</h3><p>Telegram ovozli xabarini yoki istalgan faylni «Ulashish»; fonda yozib olish; bir nechta faylni birga.</p></div>
+      <div class="card"><h3>Matn — qulay shaklda</h3><p>Nusxalash, messenjer yoki LLM ga yuborish, .txt saqlash. Vaqt belgilari ixtiyoriy.</p></div>
+    </div>
+    <h2>Boshlash</h2>
+    <ol>
+      <li><a href="https://github.com/egorchenkov/scribbit/releases/latest">Releases</a> sahifasidan APK ni yuklab oling va telefonda oching; shu manbadan oʻrnatishga ruxsat bering.</li>
+      <li>Sozlamalar → nutq modelini (≈215–360 MB) va uchrashuvlar uchun «Soʻzlovchilarni ajratish»ni (40 MB) yuklab oling.</li>
+      <li>Yozib oling, fayllarni tanlang yoki audioni Scribbit ga ulashing — soʻng «Transkripsiya».</li>
+    </ol>
+    <p>Yangilanishlar: repozitoriyni <a href="https://github.com/ImranR98/Obtainium">Obtainium</a> ga qoʻshing. Qattiq batareya menejeri boʻlgan telefonlarda (Huawei, Xiaomi, …) bir martalik sozlash kerak — ilova qadamlar roʻyxatini koʻrsatadi.</p>
+  </div>
+</main>
+
+<footer>
+  <span data-l="en">Scribbit · MIT License · engine <a href="https://github.com/k2-fsa/sherpa-onnx">sherpa-onnx</a> · models GigaAM, Whisper, pyannote, TitaNet, Silero VAD</span>
+  <span data-l="ru">Scribbit · лицензия MIT · движок <a href="https://github.com/k2-fsa/sherpa-onnx">sherpa-onnx</a> · модели GigaAM, Whisper, pyannote, TitaNet, Silero VAD</span>
+  <span data-l="uz">Scribbit · MIT litsenziyasi · dvigatel <a href="https://github.com/k2-fsa/sherpa-onnx">sherpa-onnx</a> · modellar GigaAM, Whisper, pyannote, TitaNet, Silero VAD</span>
+</footer>
+
+<script>
+  function setLang(l) {
+    document.querySelectorAll('[data-l]').forEach(e => e.classList.toggle('on', e.dataset.l === l));
+    document.querySelectorAll('.lang button').forEach(b => b.classList.toggle('on', b.dataset.set === l));
+    document.documentElement.lang = l;
+    try { localStorage.setItem('lang', l); } catch (e) {}
+  }
+  document.querySelectorAll('.lang button').forEach(b => b.onclick = () => setLang(b.dataset.set));
+  var saved = null; try { saved = localStorage.getItem('lang'); } catch (e) {}
+  var nav = (navigator.language || 'en').slice(0, 2);
+  setLang(saved || (['ru', 'uz'].includes(nav) ? nav : 'en'));
+</script>
+</body>
+</html>

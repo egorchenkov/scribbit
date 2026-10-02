@@ -1,63 +1,52 @@
-# Транскрибатор — офлайн-расшифровка аудио на Android
+# Scribbit — offline speech-to-text for Android
 
-Бесплатное приложение с открытым кодом: превращает запись совещания, голосовое из Telegram
-или диктофонный файл в текст **прямо на телефоне**. Интернет нужен один раз — скачать модель;
-дальше звук никуда не уходит.
+[Русский](README.ru.md) · [Oʻzbekcha](README.uz.md) · [Website](https://egorchenkov.github.io/scribbit/)
 
-*English summary below.*
+Scribbit turns a meeting recording, a Telegram voice message or any audio file into text
+**right on your phone**. Internet is needed once, to download a model; after that nothing
+leaves the device. Free and open source (MIT).
 
-## Возможности
-- Русский (GigaAM v3 — с пунктуацией), узбекский/казахский (GigaAM Multilingual),
-  английский и ~100 других языков (Whisper Small).
-- **Разделение говорящих** («Спикер 1: …») — для совещаний и созвонов; число участников
-  можно указать или оставить «авто». Длинные записи (часы) обрабатываются частями,
-  память телефона не растёт с длиной файла.
-- Запись с микрофона в фоне (экран можно выключить), выбор нескольких файлов,
-  «Поделиться» из Telegram, WhatsApp, диктофона и любых других приложений (аудио и видео).
-- Результат: скопировать, отправить текстом (в мессенджер или LLM), сохранить .txt;
-  таймкоды — по желанию.
+## Features
+- **Russian** (GigaAM v3 — with punctuation), **Uzbek / Kazakh** (GigaAM Multilingual),
+  **English** and ~100 other languages (Whisper Small).
+- **Speaker separation** (“Speaker 1: …”) for meetings and calls; set the number of participants
+  or leave “auto”. Multi-hour recordings are processed in parts, memory does not grow with length.
+- Background recording from the microphone (screen can be off), batch processing of several files,
+  “Share” from Telegram, WhatsApp, voice recorders and any other app (audio and video).
+- Result: copy, share as text (to a messenger or an LLM), save as .txt; timestamps optional.
+- Survives being killed by the system: work resumes from the last finished 5-minute part.
+- Interface in English, Russian and Uzbek (follows the system language).
 
-## Установка
-1. Скачайте `Transcriber-X.Y.Z.apk` со страницы [Releases](../../releases) и откройте на телефоне
-   (разрешите установку из этого источника). Нужен Android 8+ на 64-битном ARM (arm64-v8a) —
-   это практически все телефоны последних лет.
-2. Шестерёнка → скачайте модель распознавания и, для совещаний, «Разделение говорящих».
-3. «● Запись», «Выбрать файлы» или «Поделиться» → «Транскрибировать».
+## Install
+1. Download `Scribbit-X.Y.Z.apk` from [Releases](../../releases) and open it on the phone
+   (allow installation from this source). Requires Android 8+ on 64-bit ARM (arm64-v8a) —
+   practically every phone of recent years.
+2. Gear icon → download a speech model and, for meetings, “Speaker separation”.
+3. “● Record”, “Choose files” or “Share” → “Transcribe”.
 
-Обновления удобно получать через [Obtainium](https://github.com/ImranR98/Obtainium):
-добавьте ссылку на этот репозиторий — он сам будет ставить новые версии из Releases.
+For automatic updates add this repository to [Obtainium](https://github.com/ImranR98/Obtainium).
 
-## Модели
-Скачиваются в приложении с HuggingFace; в APK не входят.
+## Models
+Downloaded inside the app from HuggingFace; not bundled in the APK.
 
-- GigaAM v3 punct CTC — русский, Sber, MIT.
-- GigaAM Multilingual CTC — узбекский/русский/казахский, MIT.
+- GigaAM v3 punct CTC — Russian, Sber, MIT.
+- GigaAM Multilingual CTC — Uzbek / Russian / Kazakh, MIT.
 - Whisper Small (int8) — OpenAI, MIT.
-- Разделение говорящих: pyannote segmentation-3.0 (MIT) + NVIDIA TitaNet-small (CC BY 4.0).
-- Детектор речи Silero VAD (MIT) — встроен в APK.
+- Speaker separation: pyannote segmentation-3.0 (MIT) + NVIDIA TitaNet-small (CC BY 4.0).
+- Voice activity detector Silero VAD (MIT) — bundled in the APK.
 
-Почему именно эти — `docs/research-models.md`; сравнение с другими приложениями —
-`docs/competitors.md`; качество и скорость разделения говорящих — `docs/benchmark.md`.
+Why these models — `docs/research-models.md`; comparison with other apps — `docs/competitors.md`;
+speaker-separation quality and speed — `docs/benchmark.md`; background work on Huawei/Xiaomi/… — `docs/background.md`.
 
-## Сборка
-`./gradlew assembleRelease` (JDK 17, Android SDK 35). Подробности, проверка ядра без
-телефона и стенд качества — `docs/BUILD.md`. Движок — [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
-(Apache-2.0), готовые `jniLibs/arm64-v8a`.
+## Build
+`./gradlew assembleRelease` (JDK 17, Android SDK 35). Details, running the core on a server without
+a phone and the quality bench — `docs/BUILD.md`. Engine — [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+(Apache-2.0), prebuilt `jniLibs/arm64-v8a`.
 
-## Приватность
-Приложение не отправляет звук и текст в сеть и не содержит аналитики. Сеть используется только
-для скачивания моделей по нажатию кнопки.
+## Privacy
+The app sends neither audio nor text anywhere and contains no analytics. The network is used only
+to download models when you press the button. The optional “background log” contains timestamps and
+system state only, never the content of recordings.
 
-## Лицензия
-MIT — см. `LICENSE`. Модели распространяются под своими лицензиями (список выше).
-
----
-
-## English summary
-**Transcriber** is a free, open-source Android app for fully offline speech-to-text:
-Russian (GigaAM v3 with punctuation), Uzbek/Kazakh (GigaAM Multilingual), English and other
-languages (Whisper Small), plus speaker diarization for meetings (pyannote-3.0 + TitaNet).
-Share audio/video from Telegram or any app, pick several files, or record in the background.
-Models are downloaded once inside the app; audio never leaves the phone.
-Install the APK from [Releases](../../releases) (arm64, Android 8+) or track it with Obtainium.
-Built on [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). License: MIT.
+## License
+MIT — see `LICENSE`. Models are distributed under their own licenses (listed above).

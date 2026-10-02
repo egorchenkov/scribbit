@@ -10,7 +10,7 @@
 Сборка:
 ```bash
 export ANDROID_HOME=~/android-sdk
-./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk
+./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk → dist/Scribbit-X.Y.Z.apk
 ```
 Подпись: `keystore/release.jks` + `keystore/signing.properties` (вне git, 0600).
 **Ключ не терять** — без него обновление поверх установленной версии невозможно
