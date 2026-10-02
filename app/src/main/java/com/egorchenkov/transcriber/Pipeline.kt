@@ -27,7 +27,7 @@ data class Transcript(
     val diarized: Boolean,
 )
 
-class Cancelled : Exception("отменено")
+class Cancelled : Exception(CoreTexts.current.cancelled)
 
 /**
  * Точка продолжения: готовы первые [windows] окон (звук до отсчёта [nextSample]), их текст и
@@ -144,13 +144,12 @@ class Pipeline(
             seen += raw.size
             if (chunk.isEmpty()) {
                 if (duration > 0 && seen / SKIP_REPORT != (seen - raw.size) / SKIP_REPORT) {
-                    onProgress((seen / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f),
-                        "продолжение с части ${resume!!.windows + 1} · пропуск готового")
+                    onProgress((seen / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f), CoreTexts.current.resumingSkip(resume!!.windows + 1))
                 }
             } else {
                 feeder.feed(chunk)
                 fed += chunk.size
-                if (duration > 0) onProgress((fed / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f), "распознавание")
+                if (duration > 0) onProgress((fed / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f), CoreTexts.current.recognizing)
                 val inWindow = fed - winStart
                 if (inWindow >= windowSamples && (!vad.isSpeechDetected() || inWindow >= forceSamples)) {
                     feeder.finish()
@@ -226,7 +225,7 @@ class Pipeline(
             val len = w.samples.size / SAMPLE_RATE.toFloat()
             // Длинный файл идёт частями: подпись «часть 3 из 24», чтобы было видно, что работа идёт
             val parts = maxOf(expected, submitted)
-            val part = if (parts > 1) "часть ${w.index + 1} из $parts · " else ""
+            val part = if (parts > 1) CoreTexts.current.part(w.index + 1, parts) else ""
             // Доля файла, которую занимает окно: 0..0.5 — поиск говорящих, 0.5..1 — распознавание
             fun progress(f: Float, stage: String) {
                 if (duration > 0) onProgress(((t0 + len * f) / duration).coerceIn(0f, 1f), part + stage)
@@ -238,7 +237,7 @@ class Pipeline(
                         segs = future.get(500, TimeUnit.MILLISECONDS)
                     } catch (_: TimeoutException) {
                         if (cancelled()) throw Cancelled()
-                        progress(0.5f * w.diarDone, "поиск говорящих")
+                        progress(0.5f * w.diarDone, CoreTexts.current.findingSpeakers)
                     }
                 }
             }
@@ -266,7 +265,7 @@ class Pipeline(
                 feeder.feed(w.samples.copyOfRange(from, to))
                 feeder.finish()
                 doneSec += turn.end - turn.start
-                progress(0.5f + 0.5f * doneSec / total, "распознавание")
+                progress(0.5f + 0.5f * doneSec / total, CoreTexts.current.recognizing)
             }
             val (sums, counts) = book.snapshot()
             onCheckpoint(Checkpoint(w.start + w.samples.size, w.index + 1, out.toList(), sums, counts))
@@ -278,8 +277,7 @@ class Pipeline(
                 seen += raw.size
                 // Пропуск готового тоже занимает время (звук декодируется с начала) — показываем, что идёт
                 if (chunk.isEmpty() && duration > 0 && seen / SKIP_REPORT != (seen - raw.size) / SKIP_REPORT) {
-                    onProgress((seen / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f),
-                        "продолжение с части ${resume!!.windows + 1} · пропуск готового")
+                    onProgress((seen / SAMPLE_RATE.toFloat() / duration).coerceIn(0f, 1f), CoreTexts.current.resumingSkip(resume!!.windows + 1))
                 }
                 win.add(chunk)
                 if (win.size >= windowSamples) {

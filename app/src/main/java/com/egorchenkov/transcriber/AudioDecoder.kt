@@ -43,7 +43,7 @@ object AudioDecoder {
         val ex = MediaExtractor()
         ex.setDataSource(ctx, uri, null)
         val track = audioTrack(ex)
-        require(track >= 0) { "в файле нет аудиодорожки" }
+        require(track >= 0) { ctx.getString(R.string.no_audio_track) }
         ex.selectTrack(track)
         val format = ex.getTrackFormat(track)
         val codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)

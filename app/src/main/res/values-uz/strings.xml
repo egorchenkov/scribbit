@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Oʻzbekcha (lotin). Qoralama tarjima — ona tili egasi tomonidan tekshirilishi kerak. -->
+<resources>
+    <string name="share_label">Transkripsiya qilish</string>
+
+    <string name="selected_n">Tanlandi: %1$d</string>
+    <string name="cancel">Bekor qilish</string>
+    <string name="share">Yuborish</string>
+    <string name="delete">Oʻchirish</string>
+    <string name="settings">Sozlamalar</string>
+    <string name="model_line">Model: %1$s</string>
+    <string name="speakers_suffix">" · soʻzlovchilar: %1$s"</string>
+    <string name="speakers_count">" · soʻzlovchilar: %1$d"</string>
+    <string name="auto">avto</string>
+    <string name="model_missing_title">Nutq modeli yuklab olinmagan</string>
+    <string name="model_missing_text">Uni bir marta yuklab oling (internet kerak), keyin hammasi oflayn ishlaydi.</string>
+    <string name="open_settings">Sozlamalarni ochish</string>
+    <string name="record">● Yozish</string>
+    <string name="stop_rec">■ Toʻxtatish  %1$s</string>
+    <string name="pick_files">Fayllarni tanlash</string>
+    <string name="mic_permission_needed">Mikrofonga ruxsat kerak</string>
+    <string name="section_now">Hozir</string>
+    <string name="stopping">Toʻxtatilmoqda…</string>
+    <string name="stop">Toʻxtatish</string>
+    <string name="transcribe_n">Transkripsiya (%1$d)</string>
+    <string name="retry">Qayta urinish</string>
+    <string name="clear_queue">Navbatni tozalash</string>
+    <string name="section_history">Tarix · %1$d</string>
+    <string name="clear">Tozalash</string>
+    <string name="history_hint">Audio saqlanmaydi. Bir nechtasini tanlash uchun uzoq bosing.</string>
+    <string name="empty_hint">Suhbatni yozib oling yoki audio fayllarni tanlang. Telegram’dan ovozli xabar yoki faylni «Ulashish» orqali %1$s ga yuborish ham mumkin. Tayyor matnlar shu yerda saqlanadi.</string>
+    <string name="source_unavailable">Manba fayl endi mavjud emas — qayta ishlab boʻlmaydi</string>
+    <string name="open_failed">Faylni ochib boʻlmadi: %1$s</string>
+
+    <string name="bg_ok">✓ Ekran oʻchiq holda ishlash sozlangan</string>
+    <string name="bg_warn">⚠ Ekran oʻchiq holda ishlash</string>
+    <string name="bg_stalls">Tizim ekran oʻchiq holda tanishni toʻxtatdi: %1$d marta, jami %2$d daqiqa. Quyidagi qadamlarni tekshiring. Jarayon toʻxtatilsa, ish oxirgi tayyor qismdan davom etadi.</string>
+    <string name="bg_battery_ok">Batareya cheklovi olib tashlangan</string>
+    <string name="bg_battery_bad">Batareya ilovani cheklamoqda</string>
+    <string name="bg_battery_action">Cheklamaslik</string>
+    <string name="bg_saver_ok">Quvvat tejash oʻchiq</string>
+    <string name="bg_saver_bad">Quvvat tejash yoqilgan — fon ishi toʻxtaydi</string>
+    <string name="bg_restricted_ok">Fon faoliyati cheklanmagan</string>
+    <string name="bg_restricted_bad">Ilova maʼlumotlarida fon faoliyati cheklangan</string>
+    <string name="open">Ochish</string>
+    <string name="bg_notif_ok">Bildirishnomalar yoqilgan</string>
+    <string name="bg_notif_bad">Bildirishnomalar oʻchiq — tizim ishni yashirin deb hisoblaydi</string>
+    <string name="enable">Yoqish</string>
+    <string name="bg_done_confirm">Tayyor, sozladim</string>
+    <string name="bg_send_log">Fon jurnalini yuborish</string>
+    <string name="bg_reset_counter">Hisoblagichni tiklash</string>
+    <string name="oem_huawei">Batareya → Ilovalarni ishga tushirish → %1$s: «Avtomatik boshqarish»ni oʻchiring va chiqqan oynada uchala kalitni, ayniqsa «Fonda ishlash»ni yoqing. Aks holda EMUI ekran oʻchgach bir necha soniyada ilovani muzlatib qoʻyadi, batareya cheklovi olib tashlangan boʻlsa ham.</string>
+    <string name="oem_xiaomi">«Avtoishga tushirish»ni yoqing va «Quvvat tejash»da «Cheklovsiz»ni tanlang.</string>
+    <string name="oem_samsung">Batareya → Fon cheklovlari: ilovani «Uxlayotgan» va «Chuqur uyqudagi» ilovalardan olib tashlang.</string>
+    <string name="oem_oppo">Avtoishga tushirish va fonda ishlashga ruxsat bering; ilova uchun quvvat tejashni oʻchiring.</string>
+    <string name="oem_other">Batareya sozlamalarida ilova uchun «Cheklovsiz»ni tanlang.</string>
+
+    <string name="queued">kutmoqda</string>
+    <string name="error_prefix">xato: %1$s</string>
+    <string name="remove">Olib tashlash</string>
+    <string name="actions">Amallar</string>
+    <string name="rename">Nomini oʻzgartirish</string>
+    <string name="copy">Nusxalash</string>
+    <string name="delete_one_q">Yozuv oʻchirilsinmi?</string>
+    <string name="delete_n_q">%1$d ta yozuv oʻchirilsinmi?</string>
+    <string name="delete_text">Matn qaytarib boʻlmaydigan tarzda oʻchiriladi. Ilova audioni saqlamaydi.</string>
+    <string name="rename_title">Yozuv nomi</string>
+    <string name="rename_hint">Boʻsh — fayl nomi koʻrsatiladi</string>
+    <string name="save">Saqlash</string>
+
+    <string name="saved">Saqlandi</string>
+    <string name="save_error">Saqlashda xato: %1$s</string>
+    <string name="back">Orqaga</string>
+    <string name="file_prefix">Fayl: %1$s</string>
+    <string name="as_txt">.txt fayl sifatida</string>
+    <string name="transcript_default_name">Transkripsiya</string>
+    <string name="copied">Nusxalandi</string>
+    <string name="share_transcript">Transkripsiyani yuborish</string>
+    <string name="share_file">Faylni yuborish</string>
+
+    <string name="section_model">Nutq modeli</string>
+    <string name="section_language">Til (faqat Whisper uchun)</string>
+    <string name="lang_auto">Avto</string>
+    <string name="language_hint">GigaAM til tanlamaydi: v3 — faqat ruscha, Multilingual (oʻzbekcha) tilni oʻzi aniqlaydi.</string>
+    <string name="section_diar">Soʻzlovchilarni ajratish</string>
+    <string name="diar_switch">«1-soʻzlovchi, 2-…» deb belgilash</string>
+    <string name="diar_count">Ishtirokchilar soni (bilsangiz — aniqroq):</string>
+    <string name="diar_cost">Soʻzlovchilarni ajratish har soat audio uchun taxminan 3–5 daqiqa qoʻshadi.</string>
+    <string name="section_bg">Fonda ishlash</string>
+    <string name="section_text">Matn</string>
+    <string name="timestamps">Vaqt belgilari [dd:ss]</string>
+    <string name="about">Hammasi telefonda taniladi, audio hech qayerga yuborilmaydi. Internet faqat modellarni yuklab olish uchun kerak.\nVersiya %1$s · dvigatel sherpa-onnx 1.13.8</string>
+    <string name="downloading">Yuklanmoqda %1$d%% / %2$d MB</string>
+    <string name="installed">✓ Yuklab olingan · %1$d MB</string>
+    <string name="error_colon">Xato: %1$s</string>
+    <string name="download_again">Qayta yuklab olish (%1$d MB)</string>
+    <string name="download">Yuklab olish (%1$d MB)</string>
+
+    <string name="model_gigaam_title">Ruscha — GigaAM v3</string>
+    <string name="model_gigaam_desc">Rus nutqi uchun eng yaxshi model (Sber): tinish belgilari va bosh harflar, xatolar Whisper’dan taxminan ikki baravar kam, 4–5 marta tezroq. Faqat rus tili.</string>
+    <string name="model_gml_title">Oʻzbekcha (+ ruscha, qozoqcha) — GigaAM Multilingual</string>
+    <string name="model_gml_desc">Koʻp tilli GigaAM: oʻzbekcha (soʻzlarda ~10–14% xato; oddiy Whisper oʻzbekchada deyarli ishlamaydi), shuningdek ruscha va qozoqcha. Tinish belgilarisiz, kichik harflarda. Tilni oʻzi aniqlaydi.</string>
+    <string name="model_whisper_title">Inglizcha va boshqa tillar — Whisper Small</string>
+    <string name="model_whisper_desc">OpenAI Whisper (99 til). Inglizcha uchun yaxshi; ruscha GigaAM’dan yomonroq, oʻzbekcha juda yomon (uning uchun GigaAM Multilingual). Til quyida tanlanadi. GigaAM’dan 4–5 marta sekinroq.</string>
+    <string name="model_diar_title">Soʻzlovchilarni ajratish</string>
+    <string name="model_diar_desc">pyannote-segmentation 3.0 + TitaNet ovoz izlari. Uchrashuv yozuvlari uchun: matn «1-soʻzlovchi», «2-soʻzlovchi»… deb belgilanadi.</string>
+    <string name="dl_interrupted">yuklab olish uzildi</string>
+    <string name="dl_error_code">yuklab olishda xato (kod %1$d)</string>
+    <string name="install_error">oʻrnatishda xato</string>
+    <string name="file_missing">%1$s fayli yoʻq</string>
+
+    <string name="notif_preparing">Tayyorlanmoqda…</string>
+    <string name="stage_loading_model">model yuklanmoqda</string>
+    <string name="model_not_downloaded">«%1$s» modeli yuklab olinmagan — sozlamalarni oching</string>
+    <string name="notif_title_work">Transkripsiya</string>
+    <string name="notif_done_title">Transkripsiya tayyor</string>
+    <string name="notif_done_text">Fayllar: %1$d — ochish uchun bosing</string>
+    <string name="channel_work">Transkripsiya</string>
+    <string name="channel_rec">Yozib olish</string>
+    <string name="channel_done">Tayyor transkripsiyalar</string>
+    <string name="rec_file_prefix">Yozuv</string>
+    <string name="rec_notif_title">Yozib olinmoqda</string>
+    <string name="rec_notif_text">Tugatish uchun «Toʻxtatish»ni bosing</string>
+    <string name="rec_stop">Toʻxtatish</string>
+    <string name="rec_failed">Yozishni boshlab boʻlmadi: %1$s</string>
+    <string name="no_audio_track">faylda audio yoʻl yoʻq</string>
+</resources>

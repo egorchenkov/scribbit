@@ -14,8 +14,10 @@ data class ModelFile(val name: String, val url: String)
 
 data class ModelSpec(
     val id: String,
-    val title: String,
-    val description: String,
+    /** Короткое имя без перевода — пишется в результат (Transcript.model). */
+    val shortName: String,
+    val titleRes: Int,
+    val descriptionRes: Int,
     val sizeMb: Int,
     val engine: Engine,
     val files: List<ModelFile>,
@@ -23,7 +25,10 @@ data class ModelSpec(
     val onnxMetadata: Map<String, String> = emptyMap(),
     /** Максимальная длина куска для распознавания, секунды. */
     val maxChunkSec: Float = 20f,
-)
+) {
+    fun title(ctx: Context): String = ctx.getString(titleRes)
+    fun description(ctx: Context): String = ctx.getString(descriptionRes)
+}
 
 private const val HF = "https://huggingface.co"
 private const val GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
@@ -32,10 +37,9 @@ object Models {
     val asr = listOf(
         ModelSpec(
             id = "gigaam_v3_ru",
-            title = "Русский — GigaAM v3",
-            description = "Лучшая модель для русской речи (Сбер): пунктуация и заглавные буквы, " +
-                "ошибок примерно вдвое меньше, чем у Whisper, и работает в 4–5 раз быстрее. " +
-                "Рекомендуется по умолчанию. Только русский язык.",
+            shortName = "GigaAM v3",
+            titleRes = R.string.model_gigaam_title,
+            descriptionRes = R.string.model_gigaam_desc,
             sizeMb = 215,
             engine = Engine.NEMO_CTC,
             files = listOf(
@@ -45,10 +49,9 @@ object Models {
         ),
         ModelSpec(
             id = "gigaam_multi",
-            title = "Узбекский (+ русский, казахский) — GigaAM Multilingual",
-            description = "Мультиязычная GigaAM: узбекский (~10–14% ошибок в словах; обычный " +
-                "Whisper на узбекском почти не работает), также русский и казахский. " +
-                "Без пунктуации, строчными буквами. Язык определяет сама.",
+            shortName = "GigaAM Multilingual",
+            titleRes = R.string.model_gml_title,
+            descriptionRes = R.string.model_gml_desc,
             sizeMb = 215,
             engine = Engine.NEMO_CTC,
             files = listOf(
@@ -66,10 +69,9 @@ object Models {
         ),
         ModelSpec(
             id = "whisper_small",
-            title = "Английский и другие языки — Whisper Small",
-            description = "OpenAI Whisper (99 языков). Хорош для английского; русский — хуже " +
-                "GigaAM, узбекский — очень плохо (для него — GigaAM Multilingual). Язык выбирается ниже. " +
-                "Медленнее GigaAM в 4–5 раз.",
+            shortName = "Whisper Small",
+            titleRes = R.string.model_whisper_title,
+            descriptionRes = R.string.model_whisper_desc,
             sizeMb = 360,
             engine = Engine.WHISPER,
             files = listOf(
@@ -83,9 +85,9 @@ object Models {
 
     val diarization = ModelSpec(
         id = "diarization",
-        title = "Разделение говорящих",
-        description = "pyannote-segmentation 3.0 + голосовые отпечатки TitaNet. Нужно для записей " +
-            "переговоров: текст размечается «Спикер 1», «Спикер 2»…",
+        shortName = "pyannote + TitaNet",
+        titleRes = R.string.model_diar_title,
+        descriptionRes = R.string.model_diar_desc,
         sizeMb = 40,
         engine = Engine.DIARIZATION,
         files = listOf(
@@ -123,7 +125,7 @@ class ModelManager(private val ctx: Context) {
         dir(spec).mkdirs()
         val ids = spec.files.map { f ->
             val req = DownloadManager.Request(Uri.parse(f.url))
-                .setTitle("${spec.title}: ${f.name}")
+                .setTitle("${spec.title(ctx)}: ${f.name}")
                 .setDestinationInExternalFilesDir(ctx, "models", "${spec.id}/${f.name}")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 .setAllowedOverMetered(true)
@@ -153,7 +155,7 @@ class ModelManager(private val ctx: Context) {
         var allOk = true
         var failed: String? = null
         dm.query(DownloadManager.Query().setFilterById(*ids)).use { c ->
-            if (c.count < ids.size) failed = "загрузка прервана"
+            if (c.count < ids.size) failed = ctx.getString(R.string.dl_interrupted)
             while (c.moveToNext()) {
                 val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                 val so = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
@@ -161,7 +163,7 @@ class ModelManager(private val ctx: Context) {
                 done += so
                 if (tot > 0) total += tot
                 if (status == DownloadManager.STATUS_FAILED) {
-                    failed = "ошибка загрузки (код ${c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))})"
+                    failed = ctx.getString(R.string.dl_error_code, c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)))
                 }
                 if (status != DownloadManager.STATUS_SUCCESSFUL) allOk = false
             }
@@ -177,7 +179,7 @@ class ModelManager(private val ctx: Context) {
                 ModelState.Installed
             } catch (e: Exception) {
                 cancel(spec)
-                ModelState.Failed(e.message ?: "ошибка установки")
+                ModelState.Failed(e.message ?: ctx.getString(R.string.install_error))
             }
         }
         val expected = spec.sizeMb * 1024L * 1024L
@@ -189,7 +191,7 @@ class ModelManager(private val ctx: Context) {
         if (isInstalled(spec)) return
         spec.files.forEach { f ->
             val file = file(spec, f.name)
-            require(file.exists() && file.length() > 0) { "нет файла ${f.name}" }
+            require(file.exists() && file.length() > 0) { ctx.getString(R.string.file_missing, f.name) }
         }
         if (spec.onnxMetadata.isNotEmpty()) {
             OnnxMeta.append(file(spec, spec.files.first().name), spec.onnxMetadata)

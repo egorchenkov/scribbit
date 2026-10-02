@@ -17,6 +17,7 @@ sourceSets.main {
         "com/egorchenkov/transcriber/Pipeline.kt",
         "com/egorchenkov/transcriber/Configs.kt",
         "com/egorchenkov/transcriber/Formatter.kt",
+        "com/egorchenkov/transcriber/Texts.kt",
         "com/egorchenkov/transcriber/Resampler.kt",
         "android/**",
         "check/**",

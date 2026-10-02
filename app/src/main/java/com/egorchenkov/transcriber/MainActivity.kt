@@ -161,7 +161,7 @@ class MainActivity : ComponentActivity() {
             var added = 0
             for (uri in uris) {
                 try {
-                    val name = displayName(uri) ?: "аудио-${System.currentTimeMillis()}"
+                    val name = displayName(uri) ?: "audio-${System.currentTimeMillis()}"
                     val dst = File(inbox, "${System.nanoTime()}_${name.replace('/', '_')}")
                     contentResolver.openInputStream(uri)!!.use { input -> dst.outputStream().use { input.copyTo(it) } }
                     // Для выбора через системный диалог доступ можно сохранить — пригодится для повтора
@@ -170,8 +170,8 @@ class MainActivity : ComponentActivity() {
                     added++
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
-                        val msg = if (repeat) "Исходный файл больше недоступен — повторить нельзя"
-                        else "Не удалось открыть файл: ${e.message}"
+                        val msg = if (repeat) getString(R.string.source_unavailable)
+                        else getString(R.string.open_failed, e.message)
                         Toast.makeText(app, msg, Toast.LENGTH_LONG).show()
                     }
                 }
@@ -210,7 +210,7 @@ class MainActivity : ComponentActivity() {
             if (uris.isNotEmpty()) addUris(uris, autoStart = false)
         }
         val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-            if (ok) RecorderService.start(this) else toast("Нужно разрешение на микрофон")
+            if (ok) RecorderService.start(this) else toast(getString(R.string.mic_permission_needed))
         }
         LaunchedEffect(recError) { recError?.let { toast(it); RecorderService.error.value = null } }
 
@@ -234,18 +234,18 @@ class MainActivity : ComponentActivity() {
 
         Scaffold(topBar = {
             if (sel.isNotEmpty()) TopAppBar(
-                title = { Text("Выбрано: ${sel.size}") },
-                navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, "Отмена") } },
+                title = { Text(getString(R.string.selected_n, sel.size)) },
+                navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, getString(R.string.cancel)) } },
                 actions = {
                     IconButton(onClick = {
                         val list = history.filter { it.id in sel }.sortedBy { it.createdAt }.mapNotNull { it.result }
                         shareText(Formatter.document(list, settings.timestamps))
-                    }) { Icon(Icons.Default.Share, "Отправить") }
-                    IconButton(onClick = { confirm = "sel" }) { Icon(Icons.Default.Delete, "Удалить") }
+                    }) { Icon(Icons.Default.Share, getString(R.string.share)) }
+                    IconButton(onClick = { confirm = "sel" }) { Icon(Icons.Default.Delete, getString(R.string.delete)) }
                 },
             ) else TopAppBar(
-                title = { Text("Транскрибатор") },
-                actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Настройки") } },
+                title = { Text(getString(R.string.app_name)) },
+                actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, getString(R.string.settings)) } },
             )
         }) { pad ->
             LazyColumn(
@@ -254,10 +254,10 @@ class MainActivity : ComponentActivity() {
             ) {
                 item {
                     val diar = if (settings.diarize && models.isInstalled(Models.diarization)) {
-                        " · говорящие: " + if (settings.speakers > 0) settings.speakers else "авто"
+                        getString(R.string.speakers_suffix, if (settings.speakers > 0) settings.speakers.toString() else getString(R.string.auto))
                     } else ""
                     Text(
-                        "Модель: ${spec.title}$diar",
+                        getString(R.string.model_line, spec.title(this@MainActivity)) + diar,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -265,10 +265,10 @@ class MainActivity : ComponentActivity() {
                 if (!installed) item {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                         Column(Modifier.padding(16.dp)) {
-                            Text("Модель распознавания не скачана", fontWeight = FontWeight.Bold)
-                            Text("Скачайте её один раз (нужен интернет), дальше всё работает офлайн.")
+                            Text(getString(R.string.model_missing_title), fontWeight = FontWeight.Bold)
+                            Text(getString(R.string.model_missing_text))
                             Spacer(Modifier.height(8.dp))
-                            Button(onClick = onSettings) { Text("Открыть настройки") }
+                            Button(onClick = onSettings) { Text(getString(R.string.open_settings)) }
                         }
                     }
                 }
@@ -285,7 +285,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
                                 modifier = Modifier.weight(1f).height(56.dp),
-                            ) { Text("● Запись", fontSize = 18.sp) }
+                            ) { Text(getString(R.string.record), fontSize = 18.sp) }
                         } else {
                             var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
                             LaunchedEffect(rec) { while (true) { now = SystemClock.elapsedRealtime(); delay(500) } }
@@ -293,18 +293,18 @@ class MainActivity : ComponentActivity() {
                                 onClick = { RecorderService.stop(this@MainActivity) },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF424242)),
                                 modifier = Modifier.weight(1f).height(56.dp),
-                            ) { Text("■ Стоп  " + Formatter.time((now - rec!!.startedAt) / 1000f), fontSize = 18.sp) }
+                            ) { Text(getString(R.string.stop_rec, Formatter.time((now - rec!!.startedAt) / 1000f)), fontSize = 18.sp) }
                         }
                         OutlinedButton(
                             onClick = { picker.launch(arrayOf("audio/*", "video/*", "application/ogg")) },
                             modifier = Modifier.weight(1f).height(56.dp),
-                        ) { Text("Выбрать файлы") }
+                        ) { Text(getString(R.string.pick_files)) }
                     }
                 }
 
                 // Текущая очередь: ожидают, идут, ошибки
                 if (active.isNotEmpty()) {
-                    item { SectionTitle("Сейчас") }
+                    item { SectionTitle(getString(R.string.section_now)) }
                     items(active, key = { it.id }) { job -> JobRow(job) }
                     item {
                         val queued = active.count { it.status == Status.QUEUED }
@@ -316,16 +316,16 @@ class MainActivity : ComponentActivity() {
                                 OutlinedButton(
                                     onClick = { stopping = true; Jobs.cancelRequested = true },
                                     enabled = !stopping,
-                                ) { Text(if (stopping) "Останавливаю…" else "Остановить") }
+                                ) { Text(if (stopping) getString(R.string.stopping) else getString(R.string.stop)) }
                             } else {
                                 Button(
                                     onClick = { TranscriptionService.start(this@MainActivity) },
                                     enabled = queued > 0 && installed,
-                                ) { Text("Транскрибировать ($queued)") }
+                                ) { Text(getString(R.string.transcribe_n, queued)) }
                             }
-                            if (failed > 0 && !running) TextButton(onClick = { Jobs.retryFailed() }) { Text("Повторить") }
+                            if (failed > 0 && !running) TextButton(onClick = { Jobs.retryFailed() }) { Text(getString(R.string.retry)) }
                             Spacer(Modifier.weight(1f))
-                            TextButton(onClick = { Jobs.clear() }, enabled = !running) { Text("Убрать из очереди") }
+                            TextButton(onClick = { Jobs.clear() }, enabled = !running) { Text(getString(R.string.clear_queue)) }
                         }
                     }
                 }
@@ -334,8 +334,8 @@ class MainActivity : ComponentActivity() {
                 if (history.isNotEmpty()) {
                     item {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            SectionTitle("История · ${history.size}", Modifier.weight(1f))
-                            if (sel.isEmpty()) TextButton(onClick = { confirm = "all" }) { Text("Очистить") }
+                            SectionTitle(getString(R.string.section_history, history.size), Modifier.weight(1f))
+                            if (sel.isEmpty()) TextButton(onClick = { confirm = "all" }) { Text(getString(R.string.clear)) }
                         }
                     }
                     items(history, key = { it.id }) { job ->
@@ -349,7 +349,7 @@ class MainActivity : ComponentActivity() {
                     }
                     item {
                         Text(
-                            "Аудио не хранится. Долгое нажатие — выбрать несколько записей.",
+                            getString(R.string.history_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -357,8 +357,7 @@ class MainActivity : ComponentActivity() {
                     }
                 } else if (active.isEmpty()) item {
                     Text(
-                        "Запишите разговор или выберите аудиофайлы. Можно также «Поделиться» голосовым " +
-                            "или файлом из Telegram → «Транскрибатор». Готовые тексты будут храниться здесь.",
+                        getString(R.string.empty_hint, getString(R.string.app_name)),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -403,43 +402,41 @@ class MainActivity : ComponentActivity() {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    if (ok) "✓ Работа при выключенном экране настроена" else "⚠ Работа при выключенном экране",
+                    if (ok) getString(R.string.bg_ok) else getString(R.string.bg_warn),
                     fontWeight = FontWeight.Bold,
                 )
                 if (stalls > 0) Text(
-                    "Система останавливала распознавание при выключенном экране: $stalls раз, " +
-                        "всего ${settings.stallSec / 60} мин. Проверьте шаги ниже. " +
-                        "Если процесс убит, работа продолжится с последней готовой части.",
+                    getString(R.string.bg_stalls, stalls, settings.stallSec / 60),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                BgStep(ignoring, "Ограничение батареи снято", "Батарея ограничивает приложение", "Не ограничивать") {
+                BgStep(ignoring, getString(R.string.bg_battery_ok), getString(R.string.bg_battery_bad), getString(R.string.bg_battery_action)) {
                     Background.requestIgnore(ctx)
                 }
-                BgStep(!saver, "Энергосбережение выключено", "Включено энергосбережение — фон останавливается", "Настройки") {
+                BgStep(!saver, getString(R.string.bg_saver_ok), getString(R.string.bg_saver_bad), getString(R.string.settings)) {
                     Background.openPowerSaver(ctx)
                 }
-                BgStep(!restricted, "Работа в фоне не ограничена", "В сведениях о приложении ограничена работа в фоне", "Открыть") {
+                BgStep(!restricted, getString(R.string.bg_restricted_ok), getString(R.string.bg_restricted_bad), getString(R.string.open)) {
                     Background.openAppInfo(ctx)
                 }
-                BgStep(notif, "Уведомления включены", "Уведомления выключены — система считает работу скрытой", "Включить") {
+                BgStep(notif, getString(R.string.bg_notif_ok), getString(R.string.bg_notif_bad), getString(R.string.enable)) {
                     Background.openNotifications(ctx)
                 }
                 if (Background.hasOemManager) {
                     Text(
-                        (if (confirmed) "✓ " else "• ") + Background.instruction(),
+                        (if (confirmed) "✓ " else "• ") + Background.instruction(ctx),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(onClick = { Background.openOemManager(ctx) }) { Text("Открыть настройки") }
+                        OutlinedButton(onClick = { Background.openOemManager(ctx) }) { Text(getString(R.string.open_settings)) }
                         if (!confirmed) TextButton(onClick = {
                             settings.bgConfirmed = true; settings.stallCount = 0; settings.stallSec = 0
                             confirmed = true; stalls = 0
-                        }) { Text("Готово, настроил") }
+                        }) { Text(getString(R.string.bg_done_confirm)) }
                     }
                 }
-                TextButton(onClick = { shareLog() }) { Text("Отправить журнал фоновой работы") }
+                TextButton(onClick = { shareLog() }) { Text(getString(R.string.bg_send_log)) }
                 if (stalls > 0) TextButton(onClick = { settings.stallCount = 0; settings.stallSec = 0; stalls = 0 }) {
-                    Text("Сбросить счётчик")
+                    Text(getString(R.string.bg_reset_counter))
                 }
             }
         }
@@ -454,11 +451,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun shareLog() {
-        val head = "Transcriber ${packageManager.getPackageInfo(packageName, 0).versionName}; " +
+        val head = "Scribbit ${packageManager.getPackageInfo(packageName, 0).versionName}; " +
             "${Build.MANUFACTURER} ${Build.MODEL}; Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}); " +
             Background.summary(this) + "; настроено у производителя=${settings.bgConfirmed}; " +
             "остановок=${settings.stallCount}\n\n"
-        shareFile(head + BgLog.text(), "transcriber-bg-log")
+        shareFile(head + BgLog.text(), "scribbit-bg-log")
     }
 
     private fun Set<Long>.toggle(id: Long) = if (id in this) this - id else this + id
@@ -475,17 +472,17 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.weight(1f)) {
                     Text(job.label, fontWeight = FontWeight.Medium, maxLines = 2)
                     when (job.status) {
-                        Status.QUEUED -> Text("ожидает", style = MaterialTheme.typography.bodySmall)
+                        Status.QUEUED -> Text(getString(R.string.queued), style = MaterialTheme.typography.bodySmall)
                         Status.RUNNING -> {
                             Text("${job.stage} ${(job.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                             LinearProgressIndicator(progress = { job.progress }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
                         }
                         Status.DONE -> {}
-                        Status.ERROR -> Text("ошибка: ${job.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Status.ERROR -> Text(getString(R.string.error_prefix, job.error), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
                 if (job.status != Status.RUNNING) {
-                    IconButton(onClick = { Jobs.remove(job.id) }) { Icon(Icons.Default.Close, "Убрать") }
+                    IconButton(onClick = { Jobs.remove(job.id) }) { Icon(Icons.Default.Close, getString(R.string.remove)) }
                 }
             }
         }
@@ -521,7 +518,7 @@ class MainActivity : ComponentActivity() {
                     )
                     Text(
                         Formatter.dateTime(job.createdAt) + " · " + Formatter.time(t?.durationSec ?: 0f) +
-                            (if (t?.diarized == true) " · говорящих: ${t.pieces.map { it.speaker }.filter { it >= 0 }.distinct().size}" else ""),
+                            (if (t?.diarized == true) getString(R.string.speakers_count, t.pieces.map { it.speaker }.filter { it >= 0 }.distinct().size) else ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -531,19 +528,19 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 if (!selecting) Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Действия") }
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, getString(R.string.actions)) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Переименовать") }, onClick = { menu = false; onRename() })
+                        DropdownMenuItem(text = { Text(getString(R.string.rename)) }, onClick = { menu = false; onRename() })
                         if (t != null) {
-                            DropdownMenuItem(text = { Text("Отправить") }, onClick = {
+                            DropdownMenuItem(text = { Text(getString(R.string.share)) }, onClick = {
                                 menu = false; shareText(Formatter.one(t, settings.timestamps))
                             })
-                            DropdownMenuItem(text = { Text("Копировать") }, onClick = {
+                            DropdownMenuItem(text = { Text(getString(R.string.copy)) }, onClick = {
                                 menu = false; copy(Formatter.one(t, settings.timestamps))
                             })
                         }
-                        if (canRepeat(job)) DropdownMenuItem(text = { Text("Повторить") }, onClick = { menu = false; repeat(job) })
-                        DropdownMenuItem(text = { Text("Удалить") }, onClick = { menu = false; onDelete() })
+                        if (canRepeat(job)) DropdownMenuItem(text = { Text(getString(R.string.retry)) }, onClick = { menu = false; repeat(job) })
+                        DropdownMenuItem(text = { Text(getString(R.string.delete)) }, onClick = { menu = false; onDelete() })
                     }
                 }
             }
@@ -554,10 +551,10 @@ class MainActivity : ComponentActivity() {
     private fun ConfirmDelete(n: Int, onOk: () -> Unit, onCancel: () -> Unit) {
         AlertDialog(
             onDismissRequest = onCancel,
-            title = { Text(if (n == 1) "Удалить запись?" else "Удалить записи: $n?") },
-            text = { Text("Текст будет удалён без возможности восстановления. Аудио приложение не хранит.") },
-            confirmButton = { TextButton(onClick = onOk) { Text("Удалить") } },
-            dismissButton = { TextButton(onClick = onCancel) { Text("Отмена") } },
+            title = { Text(if (n == 1) getString(R.string.delete_one_q) else getString(R.string.delete_n_q, n)) },
+            text = { Text(getString(R.string.delete_text)) },
+            confirmButton = { TextButton(onClick = onOk) { Text(getString(R.string.delete)) } },
+            dismissButton = { TextButton(onClick = onCancel) { Text(getString(R.string.cancel)) } },
         )
     }
 
@@ -566,16 +563,16 @@ class MainActivity : ComponentActivity() {
         var text by remember { mutableStateOf(job.title ?: "") }
         AlertDialog(
             onDismissRequest = onClose,
-            title = { Text("Название записи") },
+            title = { Text(getString(R.string.rename_title)) },
             text = {
                 OutlinedTextField(
                     text, { text = it }, singleLine = true,
                     placeholder = { Text(job.name) },
-                    supportingText = { Text("Пусто — показывать имя файла") },
+                    supportingText = { Text(getString(R.string.rename_hint)) },
                 )
             },
-            confirmButton = { TextButton(onClick = { Jobs.rename(job.id, text); onClose() }) { Text("Сохранить") } },
-            dismissButton = { TextButton(onClick = onClose) { Text("Отмена") } },
+            confirmButton = { TextButton(onClick = { Jobs.rename(job.id, text); onClose() }) { Text(getString(R.string.save)) } },
+            dismissButton = { TextButton(onClick = onClose) { Text(getString(R.string.cancel)) } },
         )
     }
 
@@ -597,8 +594,8 @@ class MainActivity : ComponentActivity() {
         val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
             if (uri != null) runCatching {
                 contentResolver.openOutputStream(uri)!!.use { it.write(text.toByteArray()) }
-                toast("Сохранено")
-            }.onFailure { toast("Ошибка сохранения: ${it.message}") }
+                toast(getString(R.string.saved))
+            }.onFailure { toast(getString(R.string.save_error, it.message)) }
         }
         if (renaming) RenameDialog(job) { renaming = false }
         if (confirmDelete) ConfirmDelete(1, onOk = { Jobs.remove(job.id) }, onCancel = { confirmDelete = false })
@@ -606,10 +603,10 @@ class MainActivity : ComponentActivity() {
         Scaffold(topBar = {
             TopAppBar(
                 title = { Text(job.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, getString(R.string.back)) } },
                 actions = {
-                    IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "Переименовать") }
-                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, "Удалить") }
+                    IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, getString(R.string.rename)) }
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, getString(R.string.delete)) }
                 },
             )
         }) { pad ->
@@ -621,20 +618,20 @@ class MainActivity : ComponentActivity() {
                     item {
                         Text(
                             Formatter.dateTime(job.createdAt) + " · " + Formatter.time(t.durationSec) + " · " + t.model +
-                                (if (job.title != null) "\nФайл: ${job.name}" else ""),
+                                (if (job.title != null) "\n" + getString(R.string.file_prefix, job.name) else ""),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { shareText(text) }) { Text("Отправить") }
-                                OutlinedButton(onClick = { copy(text) }) { Text("Копировать") }
+                                Button(onClick = { shareText(text) }) { Text(getString(R.string.share)) }
+                                OutlinedButton(onClick = { copy(text) }) { Text(getString(R.string.copy)) }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { shareFile(text, job.label) }) { Text("Файлом .txt") }
-                                OutlinedButton(onClick = { saver.launch(safeName(job.label) + ".txt") }) { Text("Сохранить") }
-                                if (canRepeat(job)) OutlinedButton(onClick = { repeat(job); onBack() }) { Text("Повторить") }
+                                OutlinedButton(onClick = { shareFile(text, job.label) }) { Text(getString(R.string.as_txt)) }
+                                OutlinedButton(onClick = { saver.launch(safeName(job.label) + ".txt") }) { Text(getString(R.string.save)) }
+                                if (canRepeat(job)) OutlinedButton(onClick = { repeat(job); onBack() }) { Text(getString(R.string.retry)) }
                             }
                         }
                         HorizontalDivider(Modifier.padding(top = 12.dp))
@@ -676,15 +673,15 @@ class MainActivity : ComponentActivity() {
 
         Scaffold(topBar = {
             TopAppBar(
-                title = { Text("Настройки") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад") } },
+                title = { Text(getString(R.string.settings)) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, getString(R.string.back)) } },
             )
         }) { pad ->
             LazyColumn(
                 Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { Section("Модель распознавания") }
+                item { Section(getString(R.string.section_model)) }
                 items(Models.asr, key = { it.id }) { spec ->
                     val st = states[spec.id] ?: ModelState.NotInstalled
                     ModelCard(
@@ -696,8 +693,8 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 item {
-                    Section("Язык (только для Whisper)")
-                    val langs = listOf("ru" to "Русский", "en" to "English", "" to "Авто")
+                    Section(getString(R.string.section_language))
+                    val langs = listOf("ru" to "Русский", "en" to "English", "uz" to "Oʻzbek", "" to getString(R.string.lang_auto))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         langs.forEach { (code, label) ->
                             FilterChip(
@@ -708,19 +705,19 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Text(
-                        "GigaAM язык не выбирает: v3 — только русский, Multilingual (узбекский) определяет сам.",
+                        getString(R.string.language_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 item {
-                    Section("Разделение говорящих")
+                    Section(getString(R.string.section_diar))
                     val d = Models.diarization
                     val st = states[d.id] ?: ModelState.NotInstalled
                     ModelCard(d, st, selectable = false, selected = false, onSelect = {},
                         onAction = { scope.launch(Dispatchers.IO) { modelAction(d, st); tick++ } })
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                        Text("Размечать «Спикер 1, 2…»", Modifier.weight(1f))
+                        Text(getString(R.string.diar_switch), Modifier.weight(1f))
                         Switch(
                             checked = diarize && st == ModelState.Installed,
                             enabled = st == ModelState.Installed,
@@ -728,39 +725,37 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     if (diarize && st == ModelState.Installed) {
-                        Text("Сколько участников (если знаете — точнее):", style = MaterialTheme.typography.bodyMedium)
+                        Text(getString(R.string.diar_count), style = MaterialTheme.typography.bodyMedium)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(0, 2, 3, 4, 5, 6).forEach { n ->
                                 FilterChip(
                                     selected = speakers == n,
                                     onClick = { speakers = n; settings.speakers = n },
-                                    label = { Text(if (n == 0) "авто" else "$n") },
+                                    label = { Text(if (n == 0) getString(R.string.auto) else "$n") },
                                 )
                             }
                         }
                         Text(
-                            "Диаризация добавляет примерно 3–5 минут на час записи.",
+                            getString(R.string.diar_cost),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 item {
-                    Section("Работа в фоне")
+                    Section(getString(R.string.section_bg))
                     BackgroundCard()
                 }
                 item {
-                    Section("Текст")
+                    Section(getString(R.string.section_text))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Метки времени [мм:сс]", Modifier.weight(1f))
+                        Text(getString(R.string.timestamps), Modifier.weight(1f))
                         Switch(checked = timestamps, onCheckedChange = { timestamps = it; settings.timestamps = it })
                     }
                 }
                 item {
                     Text(
-                        "Всё распознаётся на телефоне, аудио никуда не отправляется. " +
-                            "Интернет нужен только для скачивания моделей.\n" +
-                            "Версия ${packageManager.getPackageInfo(packageName, 0).versionName} · движок sherpa-onnx 1.13.8",
+                        getString(R.string.about, packageManager.getPackageInfo(packageName, 0).versionName),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 16.dp),
@@ -799,29 +794,29 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.width(4.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(spec.title, fontWeight = FontWeight.Bold)
-                    Text(spec.description, style = MaterialTheme.typography.bodySmall)
+                    Text(spec.title(this@MainActivity), fontWeight = FontWeight.Bold)
+                    Text(spec.description(this@MainActivity), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
                     when (st) {
                         is ModelState.Downloading -> {
                             LinearProgressIndicator(progress = { st.progress }, modifier = Modifier.fillMaxWidth())
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Загрузка ${(st.progress * 100).toInt()}% из ${spec.sizeMb} МБ", Modifier.weight(1f),
+                                Text(getString(R.string.downloading, (st.progress * 100).toInt(), spec.sizeMb), Modifier.weight(1f),
                                     style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = onAction) { Text("Отмена") }
+                                TextButton(onClick = onAction) { Text(getString(R.string.cancel)) }
                             }
                         }
                         ModelState.Installed -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("✓ Скачана · ${spec.sizeMb} МБ", Modifier.weight(1f), color = Color(0xFF2E7D32),
+                            Text(getString(R.string.installed, spec.sizeMb), Modifier.weight(1f), color = Color(0xFF2E7D32),
                                 style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = onAction) { Text("Удалить") }
+                            TextButton(onClick = onAction) { Text(getString(R.string.delete)) }
                         }
                         is ModelState.Failed -> Column {
-                            Text("Ошибка: ${st.message}", color = MaterialTheme.colorScheme.error,
+                            Text(getString(R.string.error_colon, st.message), color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall)
-                            OutlinedButton(onClick = onAction) { Text("Скачать снова (${spec.sizeMb} МБ)") }
+                            OutlinedButton(onClick = onAction) { Text(getString(R.string.download_again, spec.sizeMb)) }
                         }
-                        ModelState.NotInstalled -> OutlinedButton(onClick = onAction) { Text("Скачать (${spec.sizeMb} МБ)") }
+                        ModelState.NotInstalled -> OutlinedButton(onClick = onAction) { Text(getString(R.string.download, spec.sizeMb)) }
                     }
                 }
             }
@@ -831,16 +826,16 @@ class MainActivity : ComponentActivity() {
     // ---------------- Действия с результатом ----------------
 
     private fun safeName(label: String) = label.substringBeforeLast('.', label)
-        .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(80).ifEmpty { "Транскрипция" }
+        .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(80).ifEmpty { getString(R.string.transcript_default_name) }
 
     private fun copy(text: String) {
-        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Транскрипция", text))
-        if (Build.VERSION.SDK_INT < 33) toast("Скопировано")
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(getString(R.string.transcript_default_name), text))
+        if (Build.VERSION.SDK_INT < 33) toast(getString(R.string.copied))
     }
 
     private fun shareText(text: String) {
         val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-        startActivity(Intent.createChooser(send, "Отправить транскрипцию"))
+        startActivity(Intent.createChooser(send, getString(R.string.share_transcript)))
     }
 
     private fun shareFile(text: String, label: String) {
@@ -850,7 +845,7 @@ class MainActivity : ComponentActivity() {
         val send = Intent(Intent.ACTION_SEND).setType("text/plain")
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        startActivity(Intent.createChooser(send, "Отправить файл"))
+        startActivity(Intent.createChooser(send, getString(R.string.share_file)))
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()

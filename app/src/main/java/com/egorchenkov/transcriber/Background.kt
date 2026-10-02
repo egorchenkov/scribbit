@@ -91,15 +91,12 @@ object Background {
     )
 
     /** Что включить в настройках производителя. */
-    fun instruction(): String = when {
-        isHuawei -> "Батарея → Запуск приложений → Транскрибатор: выключите «Управлять автоматически» " +
-            "и в появившемся окне включите все три переключателя, особенно «Работа в фоне». " +
-            "Без этого EMUI замораживает приложение через несколько секунд после выключения экрана, " +
-            "даже при снятом ограничении батареи."
-        isOem("xiaomi", "redmi", "poco") -> "Включите «Автозапуск» и в «Экономия заряда» выберите «Нет ограничений»."
-        isOem("samsung") -> "Батарея → Ограничения в фоне: уберите приложение из «Спящих» и «Глубоко спящих»."
-        isOem("oppo", "realme", "vivo", "oneplus") -> "Разрешите автозапуск и работу в фоне; экономию батареи для приложения выключите."
-        else -> "Выберите для приложения «Не ограничивать» в настройках батареи."
+    fun instruction(ctx: Context): String = when {
+        isHuawei -> ctx.getString(R.string.oem_huawei, ctx.getString(R.string.app_name))
+        isOem("xiaomi", "redmi", "poco") -> ctx.getString(R.string.oem_xiaomi)
+        isOem("samsung") -> ctx.getString(R.string.oem_samsung)
+        isOem("oppo", "realme", "vivo", "oneplus") -> ctx.getString(R.string.oem_oppo)
+        else -> ctx.getString(R.string.oem_other)
     }
 
     private fun tryStart(a: Activity, i: Intent): Boolean = runCatching { a.startActivity(i); true }.getOrDefault(false)

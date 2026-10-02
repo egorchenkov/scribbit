@@ -1,17 +1,18 @@
 package com.egorchenkov.transcriber
 
 import android.content.Context
+import java.util.Locale
 
 class Settings(ctx: Context) {
     private val p = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     var modelId: String
-        get() = p.getString("model", Models.asr.first().id)!!
+        get() = p.getString("model", defaultModelId())!!
         set(v) = p.edit().putString("model", v).apply()
 
     /** Язык для Whisper: "" — авто, иначе ru/en/uz. */
     var language: String
-        get() = p.getString("language", "ru")!!
+        get() = p.getString("language", defaultLanguage())!!
         set(v) = p.edit().putString("language", v).apply()
 
     var timestamps: Boolean
@@ -46,4 +47,18 @@ class Settings(ctx: Context) {
     var interrupted: Boolean
         get() = p.getBoolean("interrupted", false)
         set(v) = p.edit().putBoolean("interrupted", v).commit().let { }
+
+    companion object {
+        /** Умолчания по языку системы: русский → GigaAM v3, узбекский/казахский → GigaAM Multilingual, остальные → Whisper. */
+        fun defaultModelId(): String = when (Locale.getDefault().language) {
+            "ru" -> "gigaam_v3_ru"
+            "uz", "kk" -> "gigaam_multi"
+            else -> "whisper_small"
+        }
+
+        fun defaultLanguage(): String = when (val l = Locale.getDefault().language) {
+            "ru", "en", "uz" -> l
+            else -> ""
+        }
+    }
 }

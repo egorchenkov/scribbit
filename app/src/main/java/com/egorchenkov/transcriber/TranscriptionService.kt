@@ -47,7 +47,7 @@ class TranscriptionService : Service() {
                 Build.VERSION.SDK_INT >= 29 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
                 else -> 0
             }
-            ServiceCompat.startForeground(this, NOTIF_ID, progressNotification("Подготовка…", 0f), type)
+            ServiceCompat.startForeground(this, NOTIF_ID, progressNotification(getString(R.string.notif_preparing), 0f), type)
         } catch (e: Exception) {
             // Android 12+: из фона без исключения из экономии батареи запуск запрещён — продолжим при открытии приложения
             BgLog.log("запуск в фоне запрещён системой: ${e.javaClass.simpleName}")
@@ -86,10 +86,10 @@ class TranscriptionService : Service() {
         try {
             while (!Jobs.cancelRequested) {
                 val job = Jobs.nextQueued() ?: break
-                Jobs.update(job.id) { it.copy(status = Status.RUNNING, progress = 0f, stage = "загрузка модели") }
+                Jobs.update(job.id) { it.copy(status = Status.RUNNING, progress = 0f, stage = getString(R.string.stage_loading_model)) }
                 val key = "${spec.id}|${settings.language}|$diarize|${settings.speakers}"
                 try {
-                    if (!mm.isInstalled(spec)) error("модель «${spec.title}» не скачана — откройте настройки")
+                    if (!mm.isInstalled(spec)) error(getString(R.string.model_not_downloaded, spec.title(this)))
                     val t = transcriber ?: Transcriber(this, spec, settings.language, diarize, settings.speakers)
                         .also { transcriber = it }
                     lastProgressAt = 0L
@@ -98,14 +98,14 @@ class TranscriptionService : Service() {
                         if (resume.attempts >= MAX_ATTEMPTS) {
                             // Часть раз за разом роняет процесс (нативное падение): пропускаем её, а не крутим вечно
                             BgLog.log("часть ${resume.windows + 1} роняла процесс ${resume.attempts} раз — пропущена")
-                            resume = resume.skipWindow(Pipeline.DEFAULT_WINDOW_SEC, "[часть ${resume.windows + 1} пропущена: сбой распознавания]")
+                            resume = resume.skipWindow(Pipeline.DEFAULT_WINDOW_SEC, CoreTexts.current.skippedPart(resume.windows + 1))
                         } else {
                             // Попытка отмечается до начала работы: если процесс упадёт, она останется в точке
                             resume = resume.withAttempts(resume.attempts + 1)
                         }
                         Jobs.saveCheckpoint(job.id, key, resume)
                         BgLog.log("продолжение с части ${resume.windows + 1}, попытка ${resume.attempts}")
-                        Jobs.update(job.id) { it.copy(stage = "продолжение с части ${resume.windows + 1}") }
+                        Jobs.update(job.id) { it.copy(stage = CoreTexts.current.resumingFrom(resume.windows + 1)) }
                     }
                     val result = t.transcribe(job.name, job.file, { p, stage ->
                         noteProgress(settings)
@@ -173,7 +173,7 @@ class TranscriptionService : Service() {
     private fun progressNotification(text: String, p: Float): Notification =
         NotificationCompat.Builder(this, App.CH_WORK)
             .setSmallIcon(R.drawable.ic_mic)
-            .setContentTitle("Транскрибация")
+            .setContentTitle(getString(R.string.notif_title_work))
             .setContentText(text)
             .setProgress(100, (p * 100).toInt(), p <= 0f)
             .setOngoing(true)
@@ -195,8 +195,8 @@ class TranscriptionService : Service() {
             DONE_ID,
             NotificationCompat.Builder(this, App.CH_DONE)
                 .setSmallIcon(R.drawable.ic_mic)
-                .setContentTitle("Транскрипция готова")
-                .setContentText("Файлов: $n — нажмите, чтобы открыть")
+                .setContentTitle(getString(R.string.notif_done_title))
+                .setContentText(getString(R.string.notif_done_text, n))
                 .setAutoCancel(true)
                 .setContentIntent(App.openAppIntent(this))
                 .build(),

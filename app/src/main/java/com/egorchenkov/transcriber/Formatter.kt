@@ -1,8 +1,7 @@
 package com.egorchenkov.transcriber
 
-import java.text.SimpleDateFormat
+import java.text.DateFormat
 import java.util.Date
-import java.util.Locale
 
 /** Текст для чтения человеком и для отправки в LLM: простой, без разметки Markdown. */
 object Formatter {
@@ -12,32 +11,34 @@ object Formatter {
         else "%02d:%02d".format(s / 60, s % 60)
     }
 
-    fun dateTime(ms: Long): String = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru")).format(Date(ms))
+    /** Дата и время в формате текущего языка (ru: 02.10.2026, 22:10; en: Oct 2, 2026, 10:10 PM). */
+    fun dateTime(ms: Long): String =
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, CoreTexts.current.locale).format(Date(ms))
 
     /** Начало текста для карточки истории. */
     fun preview(t: Transcript): String =
-        t.pieces.joinToString(" ") { it.text }.take(200).ifEmpty { "(речь не обнаружена)" }
+        t.pieces.joinToString(" ") { it.text }.take(200).ifEmpty { CoreTexts.current.noSpeech }
 
     fun document(list: List<Transcript>, timestamps: Boolean): String {
         if (list.size == 1) return one(list[0], timestamps)
-        val date = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru")).format(Date())
-        return "Транскрипции (${list.size} файлов), $date\n\n" +
+        return CoreTexts.current.transcripts(list.size, dateTime(System.currentTimeMillis())) + "\n\n" +
             list.joinToString("\n\n----------\n\n") { one(it, timestamps) }
     }
 
     fun one(t: Transcript, timestamps: Boolean): String {
         val sb = StringBuilder()
-        sb.append("Транскрипция: ").append(t.name).append('\n')
-        val meta = mutableListOf("длительность ${time(t.durationSec)}", t.model)
-        if (t.diarized) meta += "говорящих: ${t.pieces.map { it.speaker }.filter { it >= 0 }.distinct().size}"
+        val x = CoreTexts.current
+        sb.append(x.transcriptHeader).append(t.name).append('\n')
+        val meta = mutableListOf(x.duration(time(t.durationSec)), t.model)
+        if (t.diarized) meta += x.speakers(t.pieces.map { it.speaker }.filter { it >= 0 }.distinct().size)
         sb.append(meta.joinToString(" · ")).append("\n\n")
         if (t.pieces.isEmpty()) {
-            sb.append("(речь не обнаружена)")
+            sb.append(x.noSpeech)
             return sb.toString()
         }
         paragraphs(t).forEach { p ->
             if (timestamps) sb.append('[').append(time(p.start)).append("] ")
-            if (t.diarized && p.speaker >= 0) sb.append("Спикер ").append(p.speaker + 1).append(": ")
+            if (t.diarized && p.speaker >= 0) sb.append(x.speaker(p.speaker + 1)).append(": ")
             sb.append(p.text).append("\n\n")
         }
         return sb.toString().trimEnd()

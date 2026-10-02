@@ -39,19 +39,19 @@ class RecorderService : Service() {
     private fun start() {
         if (recorder != null) return
         val stamp = SimpleDateFormat("yyyy-MM-dd HH-mm", Locale.US).format(Date())
-        val f = File(File(filesDir, "recordings").apply { mkdirs() }, "Запись $stamp.m4a")
+        val f = File(File(filesDir, "recordings").apply { mkdirs() }, "${getString(R.string.rec_file_prefix)} $stamp.m4a")
         val stopIntent = PendingIntent.getService(
             this, 1, Intent(this, RecorderService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
         val n = NotificationCompat.Builder(this, App.CH_REC)
             .setSmallIcon(R.drawable.ic_mic)
-            .setContentTitle("Идёт запись")
-            .setContentText("Нажмите «Стоп», чтобы завершить")
+            .setContentTitle(getString(R.string.rec_notif_title))
+            .setContentText(getString(R.string.rec_notif_text))
             .setUsesChronometer(true)
             .setOngoing(true)
             .setContentIntent(App.openAppIntent(this))
-            .addAction(0, "Стоп", stopIntent)
+            .addAction(0, getString(R.string.rec_stop), stopIntent)
             .build()
         ServiceCompat.startForeground(
             this, NOTIF_ID, n,
@@ -73,7 +73,7 @@ class RecorderService : Service() {
             _state.value = RecState(SystemClock.elapsedRealtime(), f.name)
         } catch (e: Exception) {
             _state.value = null
-            _error.value = "Не удалось начать запись: ${e.message}"
+            _error.value = getString(R.string.rec_failed, e.message)
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
         }

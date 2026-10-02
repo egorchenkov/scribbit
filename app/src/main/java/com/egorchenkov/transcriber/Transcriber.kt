@@ -59,7 +59,7 @@ class Transcriber(
         val uri = Uri.fromFile(file)
         val duration = AudioDecoder.durationSec(ctx, uri)
         val pieces = pipeline.run({ cb -> AudioDecoder.decode(ctx, uri, cb) }, duration, onProgress, cancelled, resume, onCheckpoint)
-        return Transcript(name, duration, spec.title, pieces, pipeline.diarized)
+        return Transcript(name, duration, spec.shortName, pieces, pipeline.diarized)
     }
 
     override fun close() {
